@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+.svelte-kit
+.worktrees
+build
+docs
+.vscode
+.claude
+coverage
+test-results
+*.log

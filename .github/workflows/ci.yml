@@ -1,0 +1,120 @@
+# CI: the checks, then the image.
+#
+# ------------------------------------------------------------- WHICH RUNNER
+#
+# GitHub-hosted `ubuntu-latest`, free for public repositories. Self-hosted
+# runners work too; change `runs-on`.
+#
+# --------------------------------------------------------- NO FIXED HOST PORTS
+#
+# The image job publishes `127.0.0.1::3000` — dynamic, and bound to 127.0.0.1
+# explicitly, because a bare dynamic publish creates two mappings with different
+# numbers (one on 0.0.0.0, one on [::]) and the tooling reports whichever it
+# likes. It costs nothing on a hosted runner, so it stays.
+#
+# ORIGIN is the container's OWN origin (`http://localhost:3000`) and never the
+# host port, which is what makes the dynamic port free: adapter-node derives
+# `url.origin` from ORIGIN rather than from the Host header, so SvelteKit's CSRF
+# check compares the request's `Origin:` header against that fixed value. The
+# smoke test dials the assigned host port and sends the fixed Origin. Without
+# the header, `POST /api/pdf` answers a bare 403 and nothing says why.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  checks:
+    name: lint, check, unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # No `version:` here on purpose — pnpm/action-setup resolves the version
+      # from package.json's `packageManager` field, which is also what corepack
+      # in the Dockerfile's build stage resolves. One number, one place.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm check
+      # `test:unit` only — the integration project needs a real Chromium and
+      # auto-skips without one, so running it here would be a green that proves
+      # nothing. The image job below is the real browser coverage.
+      - run: pnpm test:unit
+
+  image:
+    name: build and smoke-test the image
+    runs-on: ubuntu-latest
+    # Per-run tag; harmless on an ephemeral VM, avoids collisions elsewhere.
+    env:
+      IMAGE: calgen:ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # No setup-node: the point of this job is that the Dockerfile builds from
+      # the context .dockerignore allows. A host toolchain would hide a missing
+      # COPY.
+      - name: Build
+        run: docker build -t "$IMAGE" .
+
+      - name: Smoke-test
+        run: |
+          set -euo pipefail
+          origin=http://localhost:3000
+          # CHROMIUM_NO_SANDBOX=true: most container runtimes' default seccomp
+          # profile blocks clone(CLONE_NEWUSER), and Debian's chromium ships no
+          # setuid helper, so with the sandbox on every export is 503
+          # renderer_unavailable while /healthz stays green.
+          cid="$(docker run -d --shm-size=256m -p 127.0.0.1::3000 \
+            -e ORIGIN="$origin" -e CHROMIUM_NO_SANDBOX=true "$IMAGE")"
+          # No --rm: the exit code has to survive the container.
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          port="$(docker port "$cid" 3000 | head -1 | sed 's/.*://')"
+          base="http://127.0.0.1:${port}"
+          echo "container ${cid:0:12} on ${base}"
+
+          for _ in $(seq 1 60); do
+            curl -sf "${base}/healthz" >/dev/null && break
+            sleep 1
+          done
+          curl -sf "${base}/healthz" | tee /dev/stderr | grep -q '"status":"ok"'
+
+          opts='{"year":2026,"month":8,"schemeId":"organic","fontId":"organic","opacity":88,"showHolidays":true,"title":"","scope":"month"}'
+          code="$(curl -s -o month.pdf -w '%{http_code}' --max-time 120 \
+            -H "Origin: ${origin}" -F "options=${opts}" "${base}/api/pdf")"
+          [ "$code" = "200" ] || { echo "POST /api/pdf -> $code"; cat month.pdf; exit 1; }
+
+          head -c 5 month.pdf | grep -q '%PDF-' || { echo "not a PDF"; exit 1; }
+          # `/Type /Pages` is the page-tree node and must not be counted, and a
+          # plain `[^s]` cannot exclude it because grep never matches across the
+          # newline that may follow. Extract both spellings, then keep the ones
+          # that end at `Page`.
+          pages="$(LC_ALL=C grep -ao '/Type[[:space:]]*/Pages*' month.pdf | grep -c 'Page$')"
+          [ "$pages" = "1" ] || { echo "expected 1 page, got ${pages}"; exit 1; }
+          echo "month export: $(wc -c <month.pdf) bytes, ${pages} page"
+
+          # `docker stop` sends SIGTERM. tini forwards it, adapter-node drains
+          # and exits 0; a non-zero code here means graceful shutdown broke,
+          # which is invisible in every other check.
+          docker stop "$cid" >/dev/null
+          status="$(docker inspect -f '{{.State.ExitCode}}' "$cid")"
+          [ "$status" = "0" ] || { docker logs "$cid"; echo "exited ${status} on SIGTERM"; exit 1; }
+          echo "clean exit on SIGTERM"

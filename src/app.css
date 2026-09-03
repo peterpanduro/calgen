@@ -1,0 +1,43 @@
+@import '/fonts/fonts.css';
+
+/*
+ * Organic design-system tokens (README "Design tokens"). The app chrome uses them; the
+ * calendar page itself is driven entirely by the scheme tables in src/lib/calendar/schemes.ts.
+ */
+:root {
+	--organic-bg: #f5ead8;
+	--organic-surface: #ebddc5;
+	--organic-text: #201e1d;
+	--organic-accent: #c67139;
+	--organic-accent-600: #b2622d;
+	--organic-accent-700: #8c491a;
+	--organic-accent-100: #fff2eb;
+	--organic-accent-200: #ffe1d0;
+	--organic-sage: #7a8a5e;
+	--organic-sage-700: #56633f;
+	--organic-n100: #f9f4ed;
+	--organic-n200: #eee7db;
+	--organic-n300: #dcd3c4;
+	--organic-n400: #c0b6a5;
+	--organic-n500: #a19786;
+	--organic-n600: #82796a;
+	--organic-n700: #645c50;
+	--organic-n800: #474238;
+	--organic-n900: #2e2b25;
+	--organic-radius: 16px;
+	--organic-radius-pill: 999px;
+}
+
+body {
+	margin: 0;
+	background: var(--organic-n200);
+	font-family: 'Figtree', system-ui, sans-serif;
+	color: var(--organic-text);
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible {
+	outline: 2px solid var(--organic-accent);
+	outline-offset: 2px;
+}

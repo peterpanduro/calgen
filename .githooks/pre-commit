@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+
+if command -v gitleaks >/dev/null 2>&1; then
+	gitleaks protect --staged --redact --no-banner
+else
+	echo "pre-commit: gitleaks not installed — skipping secret scan" >&2
+fi
+
+staged() {
+	git diff --cached --name-only --diff-filter=ACM | grep -E "$1" || true
+}
+
+fmt_files=$(staged '\.(ts|js|svelte|json|css|md)$')
+if [ -n "$fmt_files" ]; then
+	echo "$fmt_files" | tr '\n' '\0' | xargs -0 pnpm exec prettier --check || {
+		echo "pre-commit: run 'pnpm format'" >&2
+		exit 1
+	}
+fi
+
+lint_files=$(staged '\.(ts|js|svelte)$')
+if [ -n "$lint_files" ]; then
+	echo "$lint_files" | tr '\n' '\0' | xargs -0 pnpm exec eslint --max-warnings=0
+fi

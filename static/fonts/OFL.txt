@@ -1,0 +1,22 @@
+CalGen — self-hosted web fonts
+==============================
+
+The `*.woff2` files in this directory, together with the generated `fonts.json` and
+`fonts.css`, were downloaded from Google Fonts by `scripts/fetch-fonts.mjs`
+(latin and latin-ext subsets only). Re-run `pnpm fetch-fonts` to refresh them.
+
+All eight families are licensed under the SIL Open Font License, Version 1.1:
+
+	Caprasimo             https://fonts.google.com/specimen/Caprasimo
+	Figtree               https://fonts.google.com/specimen/Figtree
+	Playfair Display      https://fonts.google.com/specimen/Playfair+Display
+	Source Sans 3         https://fonts.google.com/specimen/Source+Sans+3
+	Fredoka               https://fonts.google.com/specimen/Fredoka
+	Nunito                https://fonts.google.com/specimen/Nunito
+	Bricolage Grotesque   https://fonts.google.com/specimen/Bricolage+Grotesque
+	Instrument Sans       https://fonts.google.com/specimen/Instrument+Sans
+
+The full licence text is available at <https://openfontlicense.org> and in each family's
+listing on Google Fonts. The OFL permits redistribution of the font files, bundled or
+standalone, provided they are not sold on their own and the licence travels with them —
+which is what this file is for.

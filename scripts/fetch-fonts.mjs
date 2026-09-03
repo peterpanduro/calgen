@@ -1,0 +1,161 @@
+#!/usr/bin/env node
+/**
+ * Downloads the self-hosted woff2 faces CalGen ships, and regenerates
+ * `static/fonts/fonts.json` and `static/fonts/fonts.css`.
+ *
+ * Zero dependencies. Run with `pnpm fetch-fonts` (add `--force` to re-download everything).
+ * The generated files are committed: neither the Docker build nor CI may need network access.
+ */
+import { Buffer } from 'node:buffer';
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+const OUT_DIR = path.resolve(fileURLToPath(new URL('../static/fonts', import.meta.url)));
+
+/** Exactly the families and weights the four pairings need (SPEC §5.4). */
+const FAMILIES = [
+	'Caprasimo',
+	'Figtree:wght@400;600;700',
+	'Playfair+Display:wght@500',
+	'Source+Sans+3:wght@400;600;700',
+	'Fredoka:wght@500',
+	'Nunito:wght@400;600;700',
+	'Bricolage+Grotesque:wght@600',
+	'Instrument+Sans:wght@400;600;700'
+];
+
+const CSS_URL = `https://fonts.googleapis.com/css2?family=${FAMILIES.join('&family=')}`;
+
+/** A modern Chrome UA is what makes Google return woff2 with unicode-range subsets. */
+const UA =
+	'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36';
+
+/** Swedish needs latin; latin-ext covers names with š, ž, ł and friends. */
+const WANTED_SUBSETS = new Set(['latin', 'latin-ext']);
+
+const force = process.argv.includes('--force');
+
+const slug = (family) => family.toLowerCase().replaceAll(' ', '-');
+
+async function fetchOrDie(url, init) {
+	const res = await fetch(url, init);
+	if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${res.statusText}`);
+	return res;
+}
+
+/** Splits the Google stylesheet into `{ subset, family, weight, style, url, unicodeRange }`. */
+function parseFaces(css) {
+	const faces = [];
+	const blocks = css.split('/*').slice(1);
+	for (const block of blocks) {
+		const subset = block.slice(0, block.indexOf('*/')).trim();
+		const pick = (re) => block.match(re)?.[1];
+		const family = pick(/font-family:\s*'([^']+)'/);
+		const weight = pick(/font-weight:\s*(\d+)/);
+		const style = pick(/font-style:\s*(\w+)/);
+		const url = pick(/src:\s*url\(([^)]+)\)/);
+		const unicodeRange = pick(/unicode-range:\s*([^;]+);/);
+		if (!family || !weight || !url || !unicodeRange) continue;
+		faces.push({
+			subset,
+			family,
+			weight: Number(weight),
+			style: style ?? 'normal',
+			url,
+			unicodeRange: unicodeRange.trim()
+		});
+	}
+	return faces;
+}
+
+async function sizeOf(file) {
+	try {
+		return (await stat(file)).size;
+	} catch {
+		return -1;
+	}
+}
+
+async function main() {
+	console.log(`Fetching ${CSS_URL}`);
+	const css = await (await fetchOrDie(CSS_URL, { headers: { 'User-Agent': UA } })).text();
+
+	const all = parseFaces(css);
+	const faces = all.filter((f) => WANTED_SUBSETS.has(f.subset));
+	if (faces.length === 0) throw new Error('No latin/latin-ext faces found — did the UA change?');
+	console.log(`${all.length} faces parsed, ${faces.length} in latin + latin-ext`);
+
+	// Deduplicate by source URL: six of the eight families are variable fonts and Google serves
+	// one file for 400/600/700. The first (lowest-weight) face names the file.
+	const fileForUrl = new Map();
+	for (const face of faces) {
+		if (fileForUrl.has(face.url)) continue;
+		fileForUrl.set(face.url, `${slug(face.family)}-${face.weight}-${face.subset}.woff2`);
+	}
+	console.log(`${fileForUrl.size} distinct woff2 files`);
+
+	await mkdir(OUT_DIR, { recursive: true });
+
+	let downloaded = 0;
+	let skipped = 0;
+	let bytes = 0;
+	for (const [url, file] of fileForUrl) {
+		const target = path.join(OUT_DIR, file);
+		const head = await fetchOrDie(url, { method: 'HEAD', headers: { 'User-Agent': UA } });
+		const remoteSize = Number(head.headers.get('content-length') ?? -1);
+		if (!force && remoteSize > 0 && (await sizeOf(target)) === remoteSize) {
+			bytes += remoteSize;
+			skipped++;
+			continue;
+		}
+		const body = Buffer.from(
+			await (await fetchOrDie(url, { headers: { 'User-Agent': UA } })).arrayBuffer()
+		);
+		await writeFile(target, body);
+		bytes += body.byteLength;
+		downloaded++;
+	}
+	console.log(`${downloaded} downloaded, ${skipped} unchanged, ${(bytes / 1024).toFixed(1)} KB`);
+
+	const manifest = faces.map((f) => ({
+		family: f.family,
+		weight: f.weight,
+		style: f.style,
+		subset: f.subset,
+		file: fileForUrl.get(f.url),
+		unicodeRange: f.unicodeRange
+	}));
+
+	// Only write the manifest once every download has succeeded.
+	await writeFile(path.join(OUT_DIR, 'fonts.json'), `${JSON.stringify(manifest, null, '\t')}\n`);
+
+	const browserCss = manifest
+		.map(
+			(f) =>
+				`@font-face{font-family:'${f.family}';font-style:${f.style};font-weight:${f.weight};` +
+				`font-display:swap;src:url('/fonts/${f.file}') format('woff2');` +
+				`unicode-range:${f.unicodeRange}}`
+		)
+		.join('\n');
+	await writeFile(
+		path.join(OUT_DIR, 'fonts.css'),
+		`/* Generated by scripts/fetch-fonts.mjs — do not edit. */\n${browserCss}\n`
+	);
+
+	const onDisk = (await readdir(OUT_DIR)).filter((f) => f.endsWith('.woff2'));
+	const orphans = onDisk.filter((f) => ![...fileForUrl.values()].includes(f));
+	if (orphans.length > 0) console.warn(`Unreferenced files left on disk: ${orphans.join(', ')}`);
+
+	console.log(`Wrote fonts.json (${manifest.length} faces) and fonts.css`);
+	// Touching OFL.txt is manual; warn if someone deleted it.
+	await readFile(path.join(OUT_DIR, 'OFL.txt'), 'utf8').catch(() =>
+		console.warn('static/fonts/OFL.txt is missing — add the licence note back.')
+	);
+}
+
+main().catch((err) => {
+	console.error(err.message);
+	process.exit(1);
+});

@@ -1,0 +1,224 @@
+# Release: publish the image to GHCR on a version tag.
+#
+# Tagging v1.0.0 pushes ghcr.io/peterpanduro/calgen:1.0.0 and :latest. Nothing
+# else in this repository publishes anything — ci.yml builds the image and
+# deliberately never pushes it.
+#
+# ----------------------------------------------------------- THE TAG IS A
+#                                                              CLAIM ABOUT
+#                                                              package.json
+#
+# `GET /healthz` reports `version` straight out of package.json, and your
+# deployment pins an image tag. If the git tag and package.json disagree, the
+# deployed pod reports one number while the registry carries another and every
+# later question about "which version is running" has two answers. The first
+# job refuses the release instead. Bump package.json in the commit you tag.
+#
+# ------------------------------------------------------------- WHICH RUNNER
+#
+# GitHub-hosted `ubuntu-latest`, free for public repositories. Self-hosted
+# runners work too; change `runs-on`.
+#
+# ----------------------------------------------- ARCHITECTURES: amd64 ONLY
+#
+# linux/amd64, and that is a measured limit rather than a preference. The brief
+# for this workflow asked for linux/amd64 + linux/arm64; the emulated build does
+# not survive it.
+#
+# Measured, building this repository's Dockerfile for a foreign architecture
+# under QEMU (`podman build --platform linux/amd64` on an arm64 host):
+#
+#   $ svelte-kit sync || echo ''
+#   qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+#   ...
+#   $ vite build
+#   qemu: uncaught target signal 11 (Segmentation fault) - core dumped
+#   [ELIFECYCLE] Command failed with exit code 139.
+#
+# A plain `node -e` runs fine under the same emulator — it is V8's JIT under
+# heavier compilation that dies, which is a known QEMU user-mode limitation and
+# not specific to this project. `docker buildx` reaches a foreign platform
+# through the same binfmt/qemu-user mechanism, so a `platforms:
+# linux/amd64,linux/arm64` here is a release that fails half the time it runs,
+# at the moment it is least welcome.
+#
+# The clean fix is `FROM --platform=$BUILDPLATFORM` on the Dockerfile's build
+# stage: its output is architecture-independent JavaScript, so the JS build
+# would run natively for both targets and only `apt-get install chromium` would
+# be emulated. Two reasons that is not done here. It edits a Dockerfile that
+# docs/SPEC.md §10 reproduces verbatim, so it needs a spec change and a
+# docs/DEVIATIONS.md entry. And `pnpm prune --prod` leaves three
+# architecture-specific native modules in the image —
+# `@rolldown/binding-linux-<arch>-gnu`, `@rollup/rollup-linux-<arch>-gnu`,
+# `lightningcss-linux-<arch>-gnu` — so a build-platform build stage would copy
+# the BUILDER's binaries into the target image. They are build-time modules the
+# server should never load, but "should never" is not a thing to discover in
+# production. Sorting that out is its own change.
+#
+# Nothing is lost today: the image is built amd64-only on purpose. This
+# workload's memory floor is 1.5 GB with a headless Chromium in it, and amd64
+# is the architecture it is deployed on; there is no current need to also
+# publish arm64.
+#
+# `docker/setup-qemu-action` stays. It costs about ten seconds, it is what a
+# second platform would need the day the Dockerfile change lands, and being
+# wrong about having it costs a release.
+#
+# The publish job builds with buildx's default containerized driver, and
+# `platforms: linux/amd64` on the build step is what pins the release to one
+# platform — not the driver, which can do multi-platform fine. The verify and
+# publish jobs are separate VMs on a hosted runner regardless, so nothing is
+# shared between them and the image is rebuilt cold in both — accepted,
+# because a release is rare. Switching back to multi-arch is now two edits
+# together — restore `platforms: linux/amd64,linux/arm64` on the build step,
+# and move the Dockerfile's build stage to `--platform=$BUILDPLATFORM`. The
+# publish step spells them out.
+#
+# There is deliberately NO build cache. The `type=gha` backend has turned
+# other repositories' release runs red AFTER the builds succeeded — BuildKit
+# fails a build when a cache export fails, and GitHub's cache service answers
+# with an HTML 400 often enough to matter. A release is rare; a cold build is
+# the cheaper failure mode.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+# Least privilege, and `packages: write` is the whole reason this file needs a
+# permissions block at all: the default token cannot push to GHCR.
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify the tag and the image
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    # Per-run tag; harmless on an ephemeral VM, avoids collisions elsewhere.
+    env:
+      IMAGE: calgen:release-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: version
+        name: The tag must match package.json
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          # sed, not node: this job installs no host toolchain (the image
+          # builds from the Dockerfile's own context), so node is not on PATH.
+          pkg="$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' package.json | head -n1)"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag ${GITHUB_REF_NAME} claims ${tag}; package.json says ${pkg}." >&2
+            echo "GET /healthz reports package.json's number, so these must agree." >&2
+            exit 1
+          fi
+          echo "version=${pkg}" >>"$GITHUB_OUTPUT"
+          echo "releasing ${pkg}"
+
+      # ci.yml does not run on tags — it triggers on pushes to main, on pull
+      # requests and on dispatch — so a tag on any commit would otherwise
+      # publish with nothing having looked at it. This is ci.yml's image job,
+      # repeated, before anything reaches the registry.
+      - name: Build
+        run: docker build -t "$IMAGE" .
+
+      - name: Smoke-test
+        run: |
+          set -euo pipefail
+          origin=http://localhost:3000
+          # CHROMIUM_NO_SANDBOX=true: most container runtimes' default seccomp
+          # profile blocks clone(CLONE_NEWUSER), and Debian's chromium ships no
+          # setuid helper, so with the sandbox on every export is 503
+          # renderer_unavailable while /healthz stays green.
+          cid="$(docker run -d --shm-size=256m -p 127.0.0.1::3000 \
+            -e ORIGIN="$origin" -e CHROMIUM_NO_SANDBOX=true "$IMAGE")"
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          port="$(docker port "$cid" 3000 | head -1 | sed 's/.*://')"
+          base="http://127.0.0.1:${port}"
+
+          for _ in $(seq 1 60); do
+            curl -sf "${base}/healthz" >/dev/null && break
+            sleep 1
+          done
+          health="$(curl -sf "${base}/healthz")"
+          echo "$health"
+          echo "$health" | grep -q '"status":"ok"'
+          # The image's own report of its version, which is the claim the tag
+          # check above verified against the source tree.
+          echo "$health" | grep -q "\"version\":\"${{ steps.version.outputs.version }}\""
+
+          opts='{"year":2026,"month":8,"schemeId":"organic","fontId":"organic","opacity":88,"showHolidays":true,"title":"","scope":"month"}'
+          code="$(curl -s -o month.pdf -w '%{http_code}' --max-time 120 \
+            -H "Origin: ${origin}" -F "options=${opts}" "${base}/api/pdf")"
+          [ "$code" = "200" ] || { echo "POST /api/pdf -> $code"; cat month.pdf; exit 1; }
+          head -c 5 month.pdf | grep -q '%PDF-' || { echo "not a PDF"; exit 1; }
+          pages="$(LC_ALL=C grep -ao '/Type[[:space:]]*/Pages*' month.pdf | grep -c 'Page$')"
+          [ "$pages" = "1" ] || { echo "expected 1 page, got ${pages}"; exit 1; }
+          echo "month export: $(wc -c <month.pdf) bytes, ${pages} page"
+
+          docker stop "$cid" >/dev/null
+          status="$(docker inspect -f '{{.State.ExitCode}}' "$cid")"
+          [ "$status" = "0" ] || { docker logs "$cid"; echo "exited ${status} on SIGTERM"; exit 1; }
+          echo "clean exit on SIGTERM"
+
+  publish:
+    name: publish ghcr.io/peterpanduro/calgen
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Not currently doing anything the default builder couldn't without it —
+      # `platforms: linux/amd64` below is single-platform already. Kept for
+      # the reason the header gives; see ARCHITECTURES.
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/peterpanduro/calgen
+          tags: |
+            type=match,pattern=v(.*),group=1
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          # `platforms: linux/amd64` — this, not the builder, is what pins the
+          # release to one platform. See ARCHITECTURES in the header.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # The default containerized builder emits provenance attestations
+          # unless told not to; turned off to keep the published manifest a
+          # plain single-platform image rather than an attestation-carrying
+          # index.
+          provenance: false
+
+      - name: Say what was published
+        run: |
+          {
+            echo "### calgen ${{ needs.verify.outputs.version }}"
+            echo '```'
+            echo "${{ steps.meta.outputs.tags }}"
+            echo '```'
+            echo "Deploy: bump the image tag in your deployment manifests."
+          } >>"$GITHUB_STEP_SUMMARY"

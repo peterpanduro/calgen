@@ -1,0 +1,258 @@
+[
+	{
+		"family": "Bricolage Grotesque",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "bricolage-grotesque-600-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Bricolage Grotesque",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin",
+		"file": "bricolage-grotesque-600-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Caprasimo",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "caprasimo-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Caprasimo",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin",
+		"file": "caprasimo-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Figtree",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "figtree-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Figtree",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin",
+		"file": "figtree-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Figtree",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "figtree-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Figtree",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin",
+		"file": "figtree-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Figtree",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "figtree-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Figtree",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin",
+		"file": "figtree-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Fredoka",
+		"weight": 500,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "fredoka-500-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Fredoka",
+		"weight": 500,
+		"style": "normal",
+		"subset": "latin",
+		"file": "fredoka-500-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Instrument Sans",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "instrument-sans-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Instrument Sans",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin",
+		"file": "instrument-sans-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Instrument Sans",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "instrument-sans-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Instrument Sans",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin",
+		"file": "instrument-sans-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Instrument Sans",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "instrument-sans-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Instrument Sans",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin",
+		"file": "instrument-sans-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Nunito",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "nunito-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Nunito",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin",
+		"file": "nunito-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Nunito",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "nunito-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Nunito",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin",
+		"file": "nunito-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Nunito",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "nunito-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Nunito",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin",
+		"file": "nunito-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Playfair Display",
+		"weight": 500,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "playfair-display-500-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Playfair Display",
+		"weight": 500,
+		"style": "normal",
+		"subset": "latin",
+		"file": "playfair-display-500-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Source Sans 3",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "source-sans-3-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Source Sans 3",
+		"weight": 400,
+		"style": "normal",
+		"subset": "latin",
+		"file": "source-sans-3-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Source Sans 3",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "source-sans-3-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Source Sans 3",
+		"weight": 600,
+		"style": "normal",
+		"subset": "latin",
+		"file": "source-sans-3-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	},
+	{
+		"family": "Source Sans 3",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin-ext",
+		"file": "source-sans-3-400-latin-ext.woff2",
+		"unicodeRange": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF"
+	},
+	{
+		"family": "Source Sans 3",
+		"weight": 700,
+		"style": "normal",
+		"subset": "latin",
+		"file": "source-sans-3-400-latin.woff2",
+		"unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+	}
+]

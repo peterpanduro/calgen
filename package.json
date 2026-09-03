@@ -1,0 +1,47 @@
+{
+	"name": "calgen",
+	"private": true,
+	"license": "MIT",
+	"version": "1.0.0",
+	"type": "module",
+	"packageManager": "pnpm@11.17.0",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "ORIGIN=http://localhost:4173 BODY_SIZE_LIMIT=24M vite preview",
+		"start": "node build/index.js",
+		"prepare": "svelte-kit sync || echo ''",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"lint": "eslint . && prettier --check .",
+		"format": "prettier --write .",
+		"test": "pnpm test:unit",
+		"test:unit": "vitest run --project server",
+		"test:watch": "vitest --project server",
+		"test:integration": "vitest run --project integration",
+		"fetch-fonts": "node scripts/fetch-fonts.mjs",
+		"hooks:install": "git config core.hooksPath .githooks"
+	},
+	"dependencies": {
+		"@sveltejs/adapter-node": "^5.5.7",
+		"@sveltejs/kit": "^2.70.3",
+		"puppeteer-core": "25.9.0",
+		"svelte": "^5.57.0"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@sveltejs/vite-plugin-svelte": "^7.1.2",
+		"@types/node": "^24",
+		"eslint": "^10.9.1",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-svelte": "^3.19.0",
+		"globals": "^17.6.0",
+		"prettier": "^3.9.6",
+		"prettier-plugin-svelte": "^4.1.0",
+		"svelte-check": "^4.7.6",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.69.0",
+		"vite": "^8.2.2",
+		"vitest": "^4.1.11"
+	}
+}
