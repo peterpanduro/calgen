@@ -51,10 +51,13 @@ deviates from the spec; only the documented expectation was wrong. `README.md` a
 carry the measured figure. The spec's own note stands: this is documented, not optimised, and
 `chromium-headless-shell` remains the rejected alternative.
 
-## 6. App chrome uses scoped `<style>` blocks, not inline `style` attributes (§6.2, §6.3)
+## 6. App chrome uses scoped `<style>` blocks, not inline `style` attributes (§6.2–§6.4, §6.7)
 
 §6 writes the top bar, sidebar, preview stage and toast as inline `style` strings. They are
 implemented as Svelte scoped `<style>` blocks instead, with **every declared value unchanged**.
+This covers the pan/zoom surface of §6.4.1 too, whose `cursor` alternates between `grab` and
+`grabbing`. Its focus ring is **not** part of the deviation: that comes from the pre-existing
+global `button:focus-visible` rule in `src/app.css`, exactly as §6.4.1 specifies.
 
 **Reason:** the design calls for hover states (`background:#b2622d` on the primary button,
 `#ffe1d0` on the two outlined pills) and disabled states. An inline `style` attribute wins over

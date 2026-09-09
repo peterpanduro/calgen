@@ -21,8 +21,13 @@
 	style="width:297mm;height:210mm;overflow:hidden;position:relative;box-sizing:border-box;display:grid;grid-template-rows:auto 1fr;gap:5mm;padding:30mm 10mm 10mm;background:{view
 		.scheme.bg};color:{view.scheme.text};font-family:{view.font.body}"
 >
+	<!-- Always rendered; with no photo the geometry is simply invisible (SPEC §5.2). Pure layout
+	     rather than a transform, so preview and print agree by construction. -->
 	<div
-		style="position:absolute;inset:0;background-size:cover;background-position:center;background-image:{imageCss}"
+		style="position:absolute;left:{view.background.left};top:{view.background.top};width:{view
+			.background.size};height:{view.background
+			.size};background-size:cover;background-position:{view.background
+			.position};background-image:{imageCss}"
 	></div>
 	<header style="position:relative;display:flex;align-items:flex-end;padding-left:36px">
 		<h1

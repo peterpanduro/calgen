@@ -1,6 +1,13 @@
 import { FONTS } from './fonts';
 import { SCHEMES } from './schemes';
-import type { CalendarOptions, ExportRequest, ExportScope, FontId, SchemeId } from './types';
+import {
+	DEFAULT_OPTIONS,
+	type CalendarOptions,
+	type ExportRequest,
+	type ExportScope,
+	type FontId,
+	type SchemeId
+} from './types';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; code: string; message: string };
 
@@ -16,6 +23,12 @@ const FONT_IDS: ReadonlySet<string> = new Set(FONTS.map((f) => f.id));
 
 const isIntBetween = (v: unknown, lo: number, hi: number): v is number =>
 	typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
+
+// The three image-transform fields are the only non-integer numbers in the payload: a drag
+// produces fractions. `Number.isFinite` still rejects NaN and ±Infinity, which would otherwise
+// serialise into the style string as `left:NaN%` and be dropped silently by the browser.
+const isFiniteBetween = (v: unknown, lo: number, hi: number): v is number =>
+	typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
 
 /**
  * Validates an untrusted payload into an {@link ExportRequest}.
@@ -50,6 +63,20 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 			'invalid_title',
 			`Field "title" must be a string of at most ${MAX_TITLE_LENGTH} characters with no control characters.`
 		);
+	// The three image-transform fields are optional for backward compatibility: a request built
+	// before this feature existed never sends them, and omitting them must keep rendering the
+	// pre-feature `cover`/`center` geometry rather than fail. Only a genuinely missing key
+	// defaults — `null` is present and invalid, so `=== undefined`, never `??`.
+	const imageZoom = o.imageZoom === undefined ? DEFAULT_OPTIONS.imageZoom : o.imageZoom;
+	const imageX = o.imageX === undefined ? DEFAULT_OPTIONS.imageX : o.imageX;
+	const imageY = o.imageY === undefined ? DEFAULT_OPTIONS.imageY : o.imageY;
+
+	if (!isFiniteBetween(imageZoom, 1, 4))
+		return fail('invalid_image_zoom', 'Field "imageZoom" must be a finite number between 1 and 4.');
+	if (!isFiniteBetween(imageX, 0, 100))
+		return fail('invalid_image_x', 'Field "imageX" must be a finite number between 0 and 100.');
+	if (!isFiniteBetween(imageY, 0, 100))
+		return fail('invalid_image_y', 'Field "imageY" must be a finite number between 0 and 100.');
 	if (o.scope !== 'month' && o.scope !== 'year')
 		return fail('invalid_scope', 'Field "scope" must be "month" or "year".');
 
@@ -63,6 +90,9 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 			opacity: o.opacity,
 			showHolidays: o.showHolidays,
 			title: o.title,
+			imageZoom,
+			imageX,
+			imageY,
 			scope: o.scope as ExportScope
 		}
 	};

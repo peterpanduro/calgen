@@ -3,9 +3,10 @@
 A stateless web service that generates printable Swedish wall-calendar PDFs: A4 landscape
 (297 × 210 mm), one month per page, day boxes big enough to write in.
 
-Pick a year and month, optionally a custom title, a background photo, the day-box coverage, a
-colour scheme and a font pairing. The preview updates as you type. Export the chosen month, or
-all twelve months of the year as a single 12-page PDF.
+Pick a year and month, optionally a custom title, a background photo — which you can zoom and
+move to choose the crop — the day-box coverage, a colour scheme and a font pairing. The preview
+updates as you type. Export the chosen month, or all twelve months of the year as a single
+12-page PDF.
 
 Swedish throughout: Monday-first weeks, ISO-8601 week numbers, Swedish public holidays and
 Swedish UI copy.

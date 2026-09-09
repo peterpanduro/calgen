@@ -27,12 +27,17 @@ holidays, Swedish UI strings.
 - Single-month export and whole-year (12-page) export.
 - Six colour schemes, four font pairings, opacity 30–100 %, optional Swedish holidays.
 - User-supplied background photo, held in the browser and uploaded per export request.
+- Zoom (100–400 %) and pan of that photo, dragged directly in the preview, with the exported
+  PDF reproducing the preview exactly (§4.9, §5.2, §6.9).
 - `GET /healthz`, structured stdout logging, security headers, graceful shutdown.
 - Self-hosted fonts (no runtime dependency on Google Fonts or any external network).
 
 ### 1.3 Out of scope (explicitly)
 
-- Pan/zoom/crop of the background image. Follow-up. The image is always `cover`/`center`.
+- Cropping the background image — a crop rectangle, a rotation, or any change to the printed
+  aspect ratio. The image is always `background-size:cover`; at the default zoom of `1` it is
+  centred, which is the exact behaviour the service had before pan/zoom existed. Pan and zoom
+  themselves are **in scope** (§1.2).
 - Any persistence: no accounts, no image storage, no database, no session state.
 - Any locale other than Swedish; any page size other than A4 landscape.
 - Multi-month-per-page layouts, week/day views, event data, iCal import.
@@ -134,6 +139,7 @@ renderer and no duplicated geometry anywhere.
 │   │   │   ├── app-state.test.ts              NOT *.svelte.test.ts — see §12.1
 │   │   │   ├── export.ts                      builds FormData, POSTs, triggers download
 │   │   │   ├── errors.ts                      API error code → Swedish message
+│   │   │   ├── image-transform.ts             pure pan/zoom math for the preview (§6.9)
 │   │   │   └── *.test.ts
 │   │   └── server/                            ── LAYER 3 (Node only)
 │   │       ├── config.ts                      env parsing, typed, defaults
@@ -170,6 +176,12 @@ user input → app-state.svelte.ts ($state)
 ```
 
 `scale` is internal to `PreviewStage` (§6.4); it is not app state and not a prop.
+
+Pan and zoom travel the same path, in the opposite direction and back again: the pointer
+overlay inside `PreviewStage` converts a drag or a wheel tick into new `imageX`/`imageY`/
+`imageZoom` values (§6.9), calls back into `+page.svelte`, which writes them onto the `$state`
+object — from where they re-enter `CalendarOptions` and `buildCalendarView` like any other
+control. No component holds a second copy of the transform.
 
 No network. The image is an object URL created with `URL.createObjectURL(file)` and revoked
 when replaced or cleared.
@@ -260,6 +272,12 @@ export interface CalendarOptions {
 	showHolidays: boolean;
 	/** Custom title. Empty string means "use the default `<Månad> <År>`". */
 	title: string;
+	/** Background-photo zoom. Finite, 1–4. 1 = plain `cover`. */
+	imageZoom: number;
+	/** Horizontal focal point of the photo, in `background-position` percent. Finite, 0–100. */
+	imageX: number;
+	/** Vertical focal point of the photo, in `background-position` percent. Finite, 0–100. */
+	imageY: number;
 }
 
 export const DEFAULT_OPTIONS: CalendarOptions = {
@@ -269,9 +287,33 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 	fontId: 'organic',
 	opacity: 88,
 	showHolidays: true,
-	title: ''
+	title: '',
+	imageZoom: 1,
+	imageX: 50,
+	imageY: 50
 };
 ```
+
+The client **always sends** `imageZoom`, `imageX` and `imageY`, whether or not a photo is
+chosen; there is no `null` state and no optionality to branch on in the UI. They describe the
+background layer's geometry, which the page emits unconditionally (§5.2) — with
+`background-image:none` the values are simply invisible.
+
+On the wire, though, the three fields are **optional**: `parseCalendarOptions` (§3.3) defaults
+each one from `DEFAULT_OPTIONS` (`imageZoom: 1`, `imageX: 50`, `imageY: 50` — plain `cover`/
+`center`) when its key is absent from the payload. This is a backward-compatibility carve-out
+for the public API: a pre-feature caller's request has no reason to know about these fields,
+and omitting them must keep producing the pre-feature rendering rather than a `400`. A field
+that is present, `null` included, is still validated exactly as below — only a genuinely
+missing key defaults.
+
+`imageX` / `imageY` carry exactly CSS `background-position` percentage semantics, generalised
+to zoom (§4.9): `0` aligns the image's left/top edge with the page's, `50` centres it, `100`
+aligns the right/bottom edges. On an axis where the image does not overflow the page there is
+nothing to move and the value has no effect — the same as in CSS.
+
+The whole-year export uses one transform for all twelve pages: `yearPages` carries the three
+fields across unchanged, exactly as it does with scheme, font and opacity (§14.3).
 
 ### 3.2 Export request
 
@@ -301,7 +343,30 @@ pure-logic layer never sees binary data.
 | `opacity`            | `Number.isInteger`, `30 ≤ opacity ≤ 100`                               | `invalid_opacity`       |
 | `showHolidays`       | `typeof === 'boolean'`                                                 | `invalid_show_holidays` |
 | `title`              | `typeof === 'string'`, length ≤ 120, no control characters (see below) | `invalid_title`         |
+| `imageZoom`          | absent → defaults to `1`; else `Number.isFinite`, `1 ≤ imageZoom ≤ 4`  | `invalid_image_zoom`    |
+| `imageX`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageX ≤ 100`  | `invalid_image_x`       |
+| `imageY`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageY ≤ 100`  | `invalid_image_y`       |
 | `scope`              | `'month'` or `'year'`                                                  | `invalid_scope`         |
+
+`imageZoom`/`imageX`/`imageY` are the only **optional** fields: a missing key defaults from
+`DEFAULT_OPTIONS` (§3.1) instead of failing. Optionality is keyed on the key being absent
+(`o.imageZoom === undefined`), not on the value being falsy or nullish — `imageZoom: null` is
+**present** and fails `invalid_image_zoom` exactly like `imageZoom: '2'` would. This keeps the
+public API backward compatible: a request built before this feature existed, which never had a
+reason to send these fields, still renders — with the pre-feature `cover`/`center` geometry —
+instead of getting a `400`. Every other field remains required with no default.
+
+The three image fields are the only **non-integer** numbers in the payload — a drag produces
+fractions — so they are checked with `Number.isFinite`, not `Number.isInteger`. `NaN`,
+`Infinity` and `-Infinity` are rejected by `Number.isFinite`; a numeric string such as
+`'1.5'` is rejected by the `typeof === 'number'` half, like every other numeric field.
+`JSON.parse` rejects the bare tokens `NaN` and `Infinity` as a syntax error, but that is not the
+defence it looks like: a numeral that overflows the double range, `1e400` for instance, parses
+to `Infinity` without complaint. The `Number.isFinite` check is therefore the only thing
+standing between a non-finite zoom or focal point and the render — the parse is a filter on
+syntax, not on value. Nothing downstream divides by these values, but an unchecked `NaN` would
+serialise into the style string as `left:NaN%`, which a browser drops silently and a PDF would
+render un-panned with no error anywhere.
 
 The control-character rule is the regex `/[\u0000-\u001F\u007F]/`, written with escapes
 deliberately: literal control bytes must never be pasted into this document, into
@@ -333,19 +398,19 @@ All API errors are `application/json` with the shape:
 Swedish toast via the table in `src/lib/client/errors.ts` (§6.6). Unknown codes fall back to
 `"Något gick fel. Försök igen."`.
 
-| Code                                                                                                                                                                     | Status |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------ |
-| `unsupported_media_type` (request not multipart)                                                                                                                         | 415    |
-| `missing_options`                                                                                                                                                        | 400    |
-| `invalid_json`                                                                                                                                                           | 400    |
-| `invalid_options` (payload is not an object)                                                                                                                             | 400    |
-| `invalid_year` / `invalid_month` / `invalid_scheme` / `invalid_font` / `invalid_opacity` / `invalid_show_holidays` / `invalid_title` / `invalid_scope` / `invalid_image` | 400    |
-| `unsupported_image_type`                                                                                                                                                 | 415    |
-| `image_too_large`                                                                                                                                                        | 413    |
-| `render_timeout`                                                                                                                                                         | 504    |
-| `renderer_busy` (queue wait exceeded)                                                                                                                                    | 503    |
-| `renderer_unavailable` (browser launch failed)                                                                                                                           | 503    |
-| `internal_error`                                                                                                                                                         | 500    |
+| Code                                                                                                                                                                                                                                    | Status |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `unsupported_media_type` (request not multipart)                                                                                                                                                                                        | 415    |
+| `missing_options`                                                                                                                                                                                                                       | 400    |
+| `invalid_json`                                                                                                                                                                                                                          | 400    |
+| `invalid_options` (payload is not an object)                                                                                                                                                                                            | 400    |
+| `invalid_year` / `invalid_month` / `invalid_scheme` / `invalid_font` / `invalid_opacity` / `invalid_show_holidays` / `invalid_title` / `invalid_image_zoom` / `invalid_image_x` / `invalid_image_y` / `invalid_scope` / `invalid_image` | 400    |
+| `unsupported_image_type`                                                                                                                                                                                                                | 415    |
+| `image_too_large`                                                                                                                                                                                                                       | 413    |
+| `render_timeout`                                                                                                                                                                                                                        | 504    |
+| `renderer_busy` (queue wait exceeded)                                                                                                                                                                                                   | 503    |
+| `renderer_unavailable` (browser launch failed)                                                                                                                                                                                          | 503    |
+| `internal_error`                                                                                                                                                                                                                        | 500    |
 
 Never leak stack traces or `CHROMIUM_PATH` in the response body; log them instead.
 
@@ -660,6 +725,8 @@ matches `/^(#[0-9a-f]{6}|rgba\(.+\)|\d{1,3},\d{1,3},\d{1,3})$/`, `getScheme('org
 export function alpha(value: number): string;
 /** `rgba(249,244,237,0.88)` */
 export function rgba(triple: string, a: number): string;
+/** 2-decimal CSS percentage. pct((1 - 1.37) * 33) → "-12.21%". */
+export function pct(value: number): string;
 /** Escapes and wraps a URL for `background-image`. Returns 'none' for null. */
 export function imageCss(url: string | null): string;
 ```
@@ -667,13 +734,21 @@ export function imageCss(url: string | null): string;
 `alpha` MUST be `String(Math.round(value * 1000) / 1000)`. Without it, `0.88 * 0.8` serialises
 as `0.7040000000000001` and snapshot tests become platform-lore.
 
+`pct` MUST be `` `${Math.round(value * 100) / 100}%` ``. Same reason, one level worse: the
+background-layer offsets (§4.9) are products of two user-controlled floats, so `(1 - 1.37) * 33`
+serialises as `-12.210000000000004` unrounded. Two decimals of a 297 mm page is 0.03 mm — an
+order of magnitude below what any printer resolves — so the rounding is free. (A `-0` result
+needs no special handling: template interpolation of `-0` already yields `"0"`.)
+
 `imageCss` MUST reject (throw) URLs containing `"`, `)`, `\`, `<`, or any control character,
 and MUST wrap in double quotes: `url("blob:http://localhost/…")`. This is the only place a
 user-influenced string reaches a CSS value.
 
 **Tests**: `alpha(0.88*0.8) === '0.704'`; `alpha(1) === '1'`; `alpha(0.3) === '0.3'`;
 `rgba('249,244,237', 0.88) === 'rgba(249,244,237,0.88)'`; `imageCss(null) === 'none'`;
-`imageCss('blob:x') === 'url("blob:x")'`; `imageCss('a")b')` throws.
+`imageCss('blob:x') === 'url("blob:x")'`; `imageCss('a")b')` throws;
+`pct(0) === '0%'`; `pct(100) === '100%'`; `pct((1 - 1.37) * 33) === '-12.21%'`;
+`pct(-0.001) === '0%'` (no `-0%`).
 
 ### 4.8 `grid.ts`
 
@@ -768,6 +843,18 @@ export interface ViewWeek {
 	/* 'v.36' */ cells: ViewCell[];
 }
 
+/** Geometry of the background-photo layer, pre-serialised as CSS values (§5.2). */
+export interface ViewBackground {
+	/** `left` of the enlarged box, e.g. '-25%'. */
+	left: string;
+	/** `top` of the enlarged box, e.g. '-50%'. */
+	top: string;
+	/** `width` and `height` of the enlarged box, e.g. '200%'. */
+	size: string;
+	/** `background-position` inside that box, e.g. '25% 50%'. */
+	position: string;
+}
+
 export interface CalendarView {
 	title: string;
 	rows: number;
@@ -776,6 +863,7 @@ export interface CalendarView {
 	dayNames: readonly string[]; // DAY_NAMES
 	scheme: Scheme;
 	font: FontPairing;
+	background: ViewBackground;
 }
 
 export function buildCalendarView(o: CalendarOptions): CalendarView;
@@ -793,6 +881,37 @@ i === 6 || holiday → foreground scheme.holiday          (red rule)
 i === 5          → foreground scheme.weekendFg
 otherwise        → foreground scheme.text
 ```
+
+Background geometry (`z = imageZoom`, `x = imageX`, `y = imageY`):
+
+```
+background.left     = pct((1 - z) * x)
+background.top      = pct((1 - z) * y)
+background.size     = pct(z * 100)
+background.position = `${pct(x)} ${pct(y)}`
+```
+
+**Why this is correct, and aspect-ratio-agnostic.** The layer is a box `z` times the page,
+offset by a negative percentage, with `background-size:cover` inside it. Let `W` be the page
+width and `C` the width the photo covers the page with at `z = 1` (`C ≥ W`, and its value
+depends on the photo's aspect ratio, which the server never learns). Scaling the box by `z`
+scales the cover result by `z`, so the rendered photo is `z·C` wide. Its left edge then sits at
+
+```
+box offset            (1 - z) · x/100 · W
++ position inside box (z·W - z·C) · x/100
+= x/100 · (W - z·C)
+```
+
+which is precisely `background-position: x%` for an image of rendered width `z·C`: the image's
+left edge at `x` % of the leftover space. Linear in `x`, no aspect ratio anywhere in the
+expression, no `transform`, and at `z = 1, x = y = 50` it reduces to `left:0%;top:0%;
+width:100%;height:100%;background-position:50% 50%` — the same rendering as the
+`inset:0` / `background-position:center` layer this replaces. The vertical axis is the same
+statement with `H`, `y` and the cover height.
+
+The rounding lives here rather than in the component so the style string is a plain, stable,
+unit-testable value, and so preview and print are byte-identical by construction.
 
 The `red` flag is evaluated **after** the `otherMonth` branch, so an adjacent-month holiday
 can never be coloured red — matching the prototype, and now unreachable anyway because
@@ -813,6 +932,17 @@ Plus: `weeks[0].label === 'v.36'`; `gridTemplateRows === 'auto repeat(5,1fr)'`;
 `title === 'September 2026'`; a `natt` scheme case; an `opacity: 30` case
 (`rgba(220,211,196,0.24)` for other-month); a holiday-on-a-weekday case
 (2026-06-19 Midsommarafton ⇒ weekend background + `#8c491a` foreground).
+
+Background geometry (`view.background`):
+
+| `imageZoom` / `imageX` / `imageY` | `left`    | `top`     | `size` | `position` |
+| --------------------------------- | --------- | --------- | ------ | ---------- |
+| `1` / `50` / `50` (defaults)      | `0%`      | `0%`      | `100%` | `50% 50%`  |
+| `2` / `25` / `50`                 | `-25%`    | `-50%`    | `200%` | `25% 50%`  |
+| `4` / `0` / `100`                 | `0%`      | `-300%`   | `400%` | `0% 100%`  |
+| `1.37` / `33` / `66`              | `-12.21%` | `-24.42%` | `137%` | `33% 66%`  |
+
+The last row is the rounding regression: unrounded, `left` would be `-12.210000000000004%`.
 
 ### 4.10 `options.ts`
 
@@ -838,6 +968,16 @@ export function pdfFilename(o: ExportRequest): string;
 `title === ''`; `pdfFilename({year:2026,month:8,scope:'month'}) === 'calgen-2026-09.pdf'`;
 `pdfFilename({year:2026,month:8,scope:'year'}) === 'calgen-2026.pdf'`;
 `stripScope` output has no `scope` key (`'scope' in stripScope(req) === false`).
+
+For the image transform specifically: `imageZoom: 1` and `imageZoom: 4` are accepted and
+`0.99` / `4.01` / `'2'` / `NaN` / `Infinity` are `invalid_image_zoom`; `imageX: 0` and
+`imageX: 100` are accepted and `-0.01` / `100.01` / `NaN` are `invalid_image_x` (same for
+`imageY` and `invalid_image_y`); a fractional `imageZoom: 1.5` with `imageX: 33.33` round-trips
+unchanged — the parser must not round or clamp them, since rounding is the renderer's job
+(§4.7) and clamping is the UI's (§3.3); and `yearPages` carries all three across every one of
+the twelve pages. An options object with all three keys omitted parses `ok: true` with
+`imageZoom: 1`, `imageX: 50`, `imageY: 50` (§3.1's defaults); `imageZoom: null` is present, not
+absent, so it fails `invalid_image_zoom` (and likewise `imageX: null` / `imageY: null`).
 
 ---
 
@@ -880,9 +1020,29 @@ background:{view.scheme.bg};color:{view.scheme.text};font-family:{view.font.body
 Background photo layer (first child, always rendered):
 
 ```
-position:absolute;inset:0;background-size:cover;background-position:center;
+position:absolute;left:{view.background.left};top:{view.background.top};
+width:{view.background.size};height:{view.background.size};
+background-size:cover;background-position:{view.background.position};
 background-image:{imageCss}
 ```
+
+At the default transform this is `left:0%;top:0%;width:100%;height:100%;background-size:cover;
+background-position:50% 50%` — the same rendering as the `inset:0` / `center` layer it
+replaces (§4.9). Four rules govern this element and none of them may be relaxed:
+
+- **No `transform`.** A `transform` on the layer would be the obvious way to zoom and pan, and
+  it is the wrong one here: it would put a second, component-owned transform inside a page that
+  §2.5.3 keeps transform-free, it would need the photo's aspect ratio (which layer 1 does not
+  have) to convert a `background-position` percentage into a translation, and Chromium's print
+  path rasterises transformed layers on its own terms. The enlarged-box form is pure layout, so
+  preview and print agree by construction.
+- The **root `<section>` keeps `overflow:hidden`**: at `z > 1` the layer is deliberately larger
+  than the page and every edge of it must be clipped.
+- The layer stays **`position:absolute` inside the `position:relative` root**. Its percentages
+  therefore resolve against the root's padding box — 297 × 210 mm, the full page, _including_
+  the `padding:30mm 10mm 10mm`, not the content box. This is what `inset:0` already relied on.
+- The layer is **always rendered**, with or without a photo. `background-image:none` makes the
+  geometry invisible, so there is no conditional branch and no second DOM shape to test.
 
 `<header>`:
 
@@ -1128,7 +1288,7 @@ const { body, head } = render(CalendarPage, { props: { options: FIXTURE } });
 ```
 
 Assertions for `FIXTURE = { year:2026, month:8, schemeId:'organic', fontId:'organic',
-opacity:88, showHolidays:true, title:'' }`:
+opacity:88, showHolidays:true, title:'', imageZoom:1, imageX:50, imageY:50 }`:
 
 1. `head === ''` (no `<svelte:head>`; if this ever becomes non-empty the print template must
    start forwarding it — see §7.4).
@@ -1154,6 +1314,22 @@ opacity:88, showHolidays:true, title:'' }`:
 15. With `imageCss: 'var(--calgen-bg)'`: `body` contains `background-image:var(--calgen-bg)`.
 16. An inline snapshot of the full `body` for `FIXTURE` (`toMatchInlineSnapshot`) as a
     regression net for accidental style edits.
+17. At the default transform, `body` contains
+    `left:0%;top:0%;width:100%;height:100%;background-size:cover;background-position:50% 50%`.
+18. With `{...FIXTURE, imageZoom:2, imageX:25}`, `body` contains
+    `left:-25%;top:-50%;width:200%;height:200%;background-size:cover;background-position:25% 50%`.
+19. With `{...FIXTURE, imageZoom:4, imageX:0, imageY:100}`, `body` contains
+    `left:0%;top:-300%;width:400%;height:400%;background-size:cover;background-position:0% 100%`.
+20. With `{...FIXTURE, imageZoom:1.37, imageX:33, imageY:66}`, `body` contains `left:-12.21%`
+    and does **not** contain `String((1 - 1.37) * 33)` — compute the unrounded literal in the test rather than hard-coding it, so the assertion cannot drift from the platform's float result (the §4.7 rounding, end to end).
+21. The background layer carries no `transform` (rule §5.2). Capture it — the first and only
+    style attribute starting `position:absolute` — with `/<div style="(position:absolute[^"]*)"/`
+    and assert the captured declaration list does not include `transform`. A blanket
+    `expect(body).not.toContain('transform')` would be wrong: the week pills legitimately carry
+    `transform:rotate(180deg)`. Assert separately that the root `<section>` still contains
+    `overflow:hidden`, which is what clips the layer at `z > 1`.
+22. The transform is a property of the layer, not of the photo: assertions 17–20 hold with the
+    default `imageCss` (`none`) as well as with `imageCss: 'var(--calgen-bg)'`.
 
 ---
 
@@ -1223,17 +1399,58 @@ else.
 Under the title input, a hint in `font-size:12px;color:#645c50`:
 `Egen rubrik används inte vid årsexport.` (shown only when `title.trim() !== ''`).
 
-**Bakgrundsbild** — a `<label>` styled as an outlined pill
-(`display:flex;align-items:center;justify-content:center;height:44px;border-radius:999px;
-border:1.5px solid #c67139;color:#8c491a;font:600 15px 'Figtree',sans-serif;cursor:pointer;
-background:#fff2eb`, hover `#ffe1d0`) reading `Välj bild…` / `Byt bild`, wrapping a
+**Bakgrundsbild** — a `<div>` (`display:flex;gap:8px;align-items:stretch`) holding the file pill
+and, once an image is set, the removal button next to it.
+
+The file pill is a `<label>` styled as an outlined pill
+(`display:flex;align-items:center;justify-content:center;height:44px;flex:1;min-width:0;
+border-radius:999px;border:1.5px solid #c67139;color:#8c491a;font:600 15px 'Figtree',sans-serif;
+cursor:pointer;background:#fff2eb`, hover `#ffe1d0`) reading `Välj bild…` / `Byt bild`, wrapping a
 `<input type="file" accept="image/jpeg,image/png,image/webp">` that is **visually hidden but
 still focusable** (`position:absolute;width:1px;height:1px;opacity:0;pointer-events:none` on a
 `position:relative` label). `display:none` removes the input from the tab order entirely, which
-makes "Välj bild…" impossible to operate by keyboard.
-When an image is set, a text button `Ta bort bild`
-(`border:0;background:none;cursor:pointer;color:#645c50;font:600 13px 'Figtree',sans-serif;
-text-align:left;padding:0 14px`). Then the slider:
+makes "Välj bild…" impossible to operate by keyboard. `flex:1;min-width:0` is what keeps the pill
+filling the row both with and without the removal button beside it.
+
+Two controls share one secondary-pill token, `pill-secondary`
+(`display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;
+border-radius:999px;border:1.5px solid #dcd3c4;background:#fbf7f1;color:#645c50;
+font:600 13px 'Figtree',sans-serif;cursor:pointer;white-space:nowrap`; hover, when not disabled,
+`border-color:#c67139;color:#8c491a;background:#fff2eb`; disabled `opacity:.45;cursor:default`,
+with no hover change). Its focus ring is the pre-existing global `button:focus-visible` rule in
+`src/app.css`, not a rule of its own.
+
+When an image is set, `Ta bort bild` sits beside the file pill using the _pill-secondary_ token
+above, with `height` overridden to `auto` so the row's `align-items:stretch` grows it to the
+file pill's 44px:
+
+```
+<button type="button" style="{pill-secondary};height:auto">Ta bort bild</button>
+```
+
+**Only when an image is set**, the zoom control follows it — the same slider token as the
+coverage slider below, plus a reset:
+
+```
+<label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#645c50">
+  <span>Zooma: {Math.round(imageZoom * 100)} %</span>
+  <input type="range" min="100" max="400" step="1" style="accent-color:#c67139">
+</label>
+<p style="margin:0;font-size:12px;color:#645c50">Dra i förhandsvisningen för att flytta bilden.</p>
+<button type="button" style="{pill-secondary};width:100%">Återställ bildens läge</button>
+```
+
+The slider's DOM value is **percent** (an integer 100–400, so the native keyboard step is a
+sane 1 %); state holds the ratio. Read `imageZoom = Number(input.value) / 100`, write
+`value={Math.round(imageZoom * 100)}`. `min`/`max` mirror the §3.3 range, so the API never
+sees an out-of-range zoom from this control — the UI clamps, the API rejects (§3.3).
+
+`Återställ bildens läge` sets `imageZoom = 1`, `imageX = 50`, `imageY = 50` and nothing else;
+it does not touch the photo, the coverage or any other setting. It is disabled (`disabled`)
+at the default transform, taking the _pill-secondary_ disabled state above, so it never reads
+as a control that does nothing.
+
+Then the coverage slider, unchanged and always shown:
 
 ```
 <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;color:#645c50">
@@ -1254,6 +1471,13 @@ export const load: LayoutServerLoad = () => ({ maxUploadBytes: cfg.maxUploadByte
 consumed in `+layout.svelte` / `+page.svelte` as `data.maxUploadBytes` (typed via
 `./$types`). No `PUBLIC_*` env var — one fewer thing to keep in sync. On rejection show the
 Swedish toast and do not set the image.
+
+Props, beyond `app` and `maxUploadBytes`: `onReject: (message: string) => void`, called with
+the Swedish message when a chosen file is rejected, and `onImage?: () => void`, called once
+immediately after a successful `setImage`. `onImage` is optional so the sidebar stands alone in
+a test; `+page.svelte` passes `onImage={() => void measureImage(state)}`, which is what starts
+the measurement described in §6.5. The sidebar itself never measures: `measureImage` is
+asynchronous and the sidebar has nothing to do with the result.
 
 **Färgskala** — `display:grid;grid-template-columns:1fr 1fr;gap:8px`; per scheme a button
 `display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:999px;cursor:pointer;
@@ -1284,6 +1508,7 @@ and `<span style="font-size:13px;color:#645c50;font-family:{f.body}">{f.name}</s
                 border-radius:8px;overflow:hidden;
                 box-shadow:0 10px 30px rgba(32,30,29,0.14)">
       <CalendarPage {options} {imageCss} />
+      <!-- only when a photo is set: the pan/zoom surface, §6.4.1 -->
     </div>
   </div>
 </main>
@@ -1306,6 +1531,83 @@ observer and the effect live in `PreviewStage.svelte`, never in `CalendarPage.sv
 The stage is `overflow:hidden`; the page is never larger than the frame because `scale ≤ 1`
 is not enforced — at very large viewports `scale > 1` is allowed, matching the prototype.
 
+#### 6.4.1 Pan and zoom surface
+
+Two extra props, both optional so the component is still usable with no photo:
+
+```ts
+interface Props {
+	options: CalendarOptions;
+	imageCss: string;
+	children?: Snippet;
+	/** Natural pixel size of the background photo; null when there is none, or not measured yet. */
+	imageSize?: { width: number; height: number } | null;
+	/** New, already-clamped transform. Called on drag, wheel and arrow keys. */
+	onTransform?: (t: { imageZoom: number; imageX: number; imageY: number }) => void;
+}
+```
+
+The surface is rendered **only** when `imageSize` and `onTransform` are both supplied, as the
+last child of the scaled `.page` element (so it inherits the same `scale` and the same clip):
+
+```
+position:absolute;inset:0;width:100%;height:100%;padding:0;border:0;background:none;
+cursor:{dragging ? 'grabbing' : 'grab'};touch-action:none;border-radius:8px;outline-offset:-3px
+```
+
+It is a real `<button type="button">`, not a `<div>`, and it carries
+`aria-label="Flytta bakgrundsbilden. Dra med musen eller använd piltangenterna."`. Three
+reasons, in order of weight:
+
+1. **Keyboard.** A drag-only affordance is unreachable without a pointer. A button is focusable
+   for free, and `ArrowLeft/Right/Up/Down` then move the photo (see below).
+2. **Correct a11y semantics without lying.** Svelte's compiler classifies `role="application"`
+   as non-interactive (its `aria-query` superclass is `structure`, not `widget`), so a
+   `<div role="application">` with `onpointerdown`/`onkeydown` still trips
+   `a11y_no_static_element_interactions` / `a11y_no_noninteractive_element_interactions`. A
+   `<button>` trips neither, and it is the honest element: a control the user operates.
+3. **Focus ring for free** from the global `button:focus-visible` rule in `app.css` — with
+   `outline-offset:-3px` and `border-radius:8px` (matching the `.page` clip, so the ring is not cut at the corners), because the `.page` wrapper is `overflow:hidden` and would clip an
+   outset ring.
+
+It carries no `onclick`, so there is nothing for Enter/Space to activate and no
+`a11y_click_events_have_key_events` warning.
+
+Interaction, all of it delegating the arithmetic to §6.9:
+
+- **Drag.** `onpointerdown`: record the pointer position, `setPointerCapture(event.pointerId)`,
+  set `dragging = true`. `onpointermove` while dragging: convert the screen delta to page space
+  by dividing by `scale` — `PreviewStage` already owns `scale`, which is exactly why the surface
+  lives here — feed it to `panBy`, and emit the result. `onpointerup` / `onpointercancel`:
+  `dragging = false`. Pointer capture keeps the drag alive when the pointer leaves the page
+  rectangle, which happens constantly at high zoom.
+- **One pointer, primary button.** `onpointerdown` ignores anything but `event.button === 0`, so
+  a right- or middle-button drag is left to the browser. The `pointerId` that started the drag is
+  recorded, and `onpointermove` / `onpointerup` / `onpointercancel` ignore every other one: a
+  second finger reports its own moves through the same handler, and following both makes the
+  photo jitter between two positions.
+- **`onlostpointercapture`** ends the drag as well. Capture can be lost without a `pointerup` —
+  the element is removed, or the browser takes over the gesture — and `dragging` would otherwise
+  stick, leaving a `grabbing` cursor and a photo that follows the pointer with no button held.
+- **Wheel.** `onwheel`: `preventDefault()`, then `zoomBy(transform, event.deltaY)`. Wheel up
+  (negative `deltaY`) zooms in. `imageX`/`imageY` are passed through unchanged — deliberately
+  **not** zoom-about-cursor, which would need a second reference frame and a second set of
+  tests to buy a nicety the sidebar slider already covers. `preventDefault` costs nothing here:
+  the shell is `height:100vh` and the stage is `overflow:hidden`, so there is no scrolling
+  behind the preview to suppress.
+- **Ctrl/Cmd + wheel is not ours.** When `event.ctrlKey || event.metaKey` is set the handler
+  returns immediately — no `preventDefault`, no `zoomBy`. That combination is the browser's own
+  page-zoom gesture (and what a trackpad pinch reports as), and swallowing it would take page
+  zoom away from exactly the users who depend on it.
+- **Keyboard.** `onkeydown`: the four arrows call `nudge` for 1 percentage point, 10 with
+  `Shift`; `preventDefault()` on those four keys only, so Tab and everything else still work.
+- **Locked axes.** When the photo does not overflow the page on an axis, §6.9 returns that
+  axis unchanged. No special-casing in the component.
+
+`CalendarPage.svelte` gets **no** event handlers, no wrapper and no extra prop from any of
+this. It stays props-in / HTML-out and SSR-clean (§2.5.2); the interaction is entirely the
+app's, exactly as `scale` already is.
+
 ### 6.5 Client state
 
 `src/lib/client/app-state.svelte.ts`
@@ -1316,18 +1618,56 @@ export interface AppState extends CalendarOptions {
 	imageFile: File | null;
 	/** Object URL for the preview; revoked on replace/clear. */
 	imageUrl: string | null;
+	/** Natural pixel size of the photo, once measured. Client-only — never sent. */
+	imageSize: { width: number; height: number } | null;
 	exporting: null | 'month' | 'year';
 	toast: { kind: 'error' | 'info'; text: string } | null;
 }
 export function createAppState(): AppState; // a $state(...) object
+
+/** Loads a URL and reports the decoded pixel size. Injected so the module is testable. */
+export type ImageMeasurer = (url: string) => Promise<{ width: number; height: number }>;
+export function measureImage(state: AppState, measure?: ImageMeasurer): Promise<void>;
+/** Restores imageZoom 1 / imageX 50 / imageY 50. */
+export function resetImageTransform(state: AppState): void;
 ```
+
+`imageSize` is the photo's `naturalWidth`/`naturalHeight`. It is needed to know how far the
+photo overflows the page (§6.9) and for nothing else, so it stays client-side: it is **not**
+part of `CalendarOptions`, is never sent to the server, and never appears in `toOptions`. The
+server does not need it — that is the point of the §4.9 geometry.
+
+`setImage` MUST, in addition to what it already does, clear `imageSize` and call
+`resetImageTransform`; `clearImage` MUST do the same. A transform is meaningful only against
+the photo it was chosen for: carrying a 4× zoom on the left edge over to a different photo
+shows the user a crop they never picked. Between `setImage` and the resolution of
+`measureImage`, `imageSize` is `null`, the preview surface is not rendered and dragging is
+simply not offered — the preview itself is already correct, because the geometry is at its
+default.
+
+`measureImage` is started from `Sidebar`'s `onImage` callback (§6.3), which fires once after a
+successful `setImage`; `+page.svelte` wires it as `onImage={() => void measureImage(state)}`.
+Both of its outcomes are discarded when `state.imageUrl` no longer equals the URL that was
+measured — the user replaced or removed the photo mid-flight — so a stale size never describes
+the wrong photo and a stale failure never toasts about the new one. A measurement with a zero
+width or height is discarded as well: `coverSize` (§6.9) would divide by it, and `NaN` would
+leak into `imageX`/`imageY`. `imageSize` then simply stays `null`, which the UI already handles
+by not offering the drag surface.
+
+The default measurer creates an `Image`, sets `src` to the object URL and resolves on `load`
+(rejecting on `error`, which surfaces as a toast). It is a parameter, not an import, so
+`app-state.test.ts` can run in the `server` vitest project with no DOM — the same pattern as
+`fetchImpl` in §6.6.
 
 `imageUrl` MUST be created with `URL.createObjectURL` and revoked with `URL.revokeObjectURL`
 when replaced or cleared, and on page unload. (The prototype used a `FileReader` data URL;
 object URLs avoid holding a 27 MB base64 string in memory for the preview.)
 
 Derived in `+page.svelte`: `const options = $derived({ year, month, schemeId, fontId, opacity,
-showHolidays, title })` and `const imageCss = $derived(imageCssOf(state.imageUrl))`.
+showHolidays, title, imageZoom, imageX, imageY })` (i.e. `toOptions(state)`) and
+`const imageCss = $derived(imageCssOf(state.imageUrl))`. `+page.svelte` passes
+`imageSize={state.imageSize}` and an `onTransform` that writes the three fields back onto the
+state object — three assignments, no intermediate store.
 
 ### 6.6 Export client (`src/lib/client/export.ts`)
 
@@ -1381,6 +1721,127 @@ font:600 14px 'Figtree',sans-serif;box-shadow:0 10px 30px rgba(32,30,29,.24)`,
 - Changing year or month re-derives grid, week numbers and holidays via `$derived`.
 - The title input's placeholder always shows the current default title.
 - The year export ignores the custom title (§14.3).
+- Dragging, wheeling or arrowing on the preview updates `imageZoom`/`imageX`/`imageY` on the
+  same synchronous `$state → $derived → CalendarPage` path as every other control, so the day
+  boxes, week pills and dates re-render over the moved photo immediately, at the position they
+  will occupy in the PDF.
+- The exported PDF matches the preview because both sides render the identical style string
+  from the identical three numbers (§4.9): there is no separate export-time transform, and no
+  device-pixel or aspect-ratio input to disagree about.
+- Choosing or removing a photo resets the transform to `1 / 50 / 50` (§6.5).
+
+### 6.9 Pan and zoom math (`src/lib/client/image-transform.ts`)
+
+Dependency-free and pure: no DOM, no Svelte, no imports outside the module. It runs in the
+`server` vitest project like any other unit (§12.1), which is the whole reason the arithmetic
+does not live inside `PreviewStage.svelte`.
+
+```ts
+/** The printed page, in CSS pixels at 96 dpi: 297 × 210 mm. */
+export const PAGE_WIDTH_PX: number; // 297 * 96 / 25.4 = 1122.519685…
+export const PAGE_HEIGHT_PX: number; // 210 * 96 / 25.4 =  793.700787…
+
+export const MIN_ZOOM = 1;
+export const MAX_ZOOM = 4;
+
+export interface ImageSize {
+	width: number;
+	height: number;
+}
+export interface Transform {
+	imageZoom: number;
+	imageX: number;
+	imageY: number;
+}
+
+/** Size the photo is rendered at by `cover` on the page, before zoom. */
+export function coverSize(image: ImageSize): { width: number; height: number };
+/** How far the photo overruns the page on each axis at this zoom. Never negative. */
+export function overflow(image: ImageSize, zoom: number): { x: number; y: number };
+/** New transform after dragging by (dx, dy) **page** pixels. Axes without overflow are fixed. */
+export function panBy(t: Transform, image: ImageSize, dx: number, dy: number): Transform;
+/** New transform after moving the focal point by whole percentage points (arrow keys). */
+export function nudge(
+	t: Transform,
+	image: ImageSize,
+	dxPercent: number,
+	dyPercent: number
+): Transform;
+/** New transform after a wheel tick. `deltaY < 0` (wheel up) zooms in. */
+export function zoomBy(t: Transform, deltaY: number): Transform;
+/** Clamps a zoom into [MIN_ZOOM, MAX_ZOOM]; NaN returns MIN_ZOOM, ±Infinity clamps into the range. */
+export function clampZoom(zoom: number): number;
+```
+
+`coverSize` is `max(W/nw, H/nh)` applied to both natural dimensions — i.e.
+`width = max(W, H · nw/nh)`, `height = max(H, W · nh/nw)` — and `overflow` is
+`max(0, zoom · coverSize − page)` per axis.
+
+`panBy` inverts the §4.9 geometry. The photo's left edge sits at `imageX/100 · (W − zoom·C)`,
+so moving the photo right by `dx` page pixels means
+
+```
+imageX ← clamp(imageX - 100 * dx / overflow.x, 0, 100)      when overflow.x > 0
+imageX ← imageX                                             when overflow.x === 0
+```
+
+and the same for `imageY`/`dy`. The minus sign is the whole point of direct manipulation: the
+photo follows the pointer, so the _focal point_ moves the opposite way. An axis with no
+overflow has nothing to reveal, so it is returned untouched rather than clamped to an edge.
+
+`nudge` is the keyboard sibling of `panBy` and shares its clamping and its axis lock, but takes
+percentage points directly instead of pixels: `ArrowRight` should always move the focal point
+the same visible amount regardless of how far the photo overflows. Its sign convention is the
+focal point's, not the drag's — `ArrowRight` means "focus further right", i.e. `+1`.
+
+`zoomBy` uses a multiplicative step, `zoom * (deltaY < 0 ? 1.1 : 1/1.1)`, clamped — a fixed
+additive step feels coarse near 1× and glacial near 4×. `deltaY === 0` returns the transform
+unchanged. Only the sign of `deltaY` is read, never its magnitude: `deltaMode` differs between
+mouse wheels, trackpads and browsers, and one notch must mean one step everywhere.
+
+Nothing in this module knows about `scale`, elements or events; `PreviewStage` divides the
+screen delta by `scale` before calling `panBy`, and decides which wheel events reach `zoomBy` at
+all — a Ctrl/Cmd-modified wheel is the browser's page zoom and is never forwarded (§6.4.1).
+
+**Tests** (`image-transform.test.ts`), with `W ≈ 1122.52`, `H ≈ 793.70`:
+
+1. `coverSize({width:1000,height:1000})` (square, page is landscape) → width and height both
+   `≈ 1122.52`: the width is the binding dimension and the height overruns.
+2. `coverSize({width:4000,height:3000})`: 4:3 is 1.333, narrower than the page's 1.414, so
+   `cover` binds on **width** — width `≈ 1122.52`, height `≈ 841.89`. And
+   `coverSize({width:4000,height:2000})`: 2:1 is wider than the page, so it binds on
+   **height** — height `≈ 793.70`, width `≈ 1587.40`. In both, and as a property over a
+   handful of aspect ratios, the box covers the page: `width ≥ W` and `height ≥ H`.
+3. A photo of exactly 297:210 → `coverSize` equals the page and `overflow(…, 1)` is `{x:0,y:0}`
+   on both axes.
+4. `overflow` scales linearly in zoom: `overflow(img, 2).x === 2 * coverWidth - W`.
+5. `panBy` with `overflow.x === 0` returns `imageX` unchanged, whatever `dx` is.
+6. `panBy` moves the focal point against the drag: dragging right (`dx > 0`) decreases
+   `imageX`; dragging down decreases `imageY`.
+7. `panBy` clamps: from `imageX: 0`, a large positive `dx` leaves `imageX` at `0`, never
+   negative; from `100`, a large negative `dx` leaves it at `100`.
+8. `panBy` is exactly invertible within the clamped range: `panBy(panBy(t, img, 40, 25), img,
+-40, -25)` returns the original values (within 1e-9).
+9. `panBy` is calibrated in **page pixels**, not percent and not screen pixels: take
+   `dx = overflow(image, zoom).x / 10` and assert `imageX` moves by exactly 10 points. This is
+   the assertion that catches a caller which forgets to divide the screen delta by `scale`
+   only if it is read together with the `PreviewStage` wiring — so state the unit in the
+   JSDoc of `panBy` as well.
+10. `zoomBy` with `deltaY < 0` increases the zoom; with `deltaY > 0` decreases it; with
+    `deltaY === 0` returns it unchanged.
+11. `zoomBy` reads only the sign: `deltaY: -1` and `deltaY: -240` give the same result.
+12. `zoomBy` clamps at both ends — from `4`, zooming in stays `4`; from `1`, out stays `1` —
+    and repeated calls never leave `[1, 4]`.
+13. `zoomBy` never changes `imageX`/`imageY`.
+14. `clampZoom(NaN) === 1`, `clampZoom(Infinity) === 4`, `clampZoom(0.5) === 1`,
+    `clampZoom(2.5) === 2.5`.
+15. `PAGE_WIDTH_PX` and `PAGE_HEIGHT_PX` equal `297 * 96 / 25.4` and `210 * 96 / 25.4`, the same
+    mm-derived form `PreviewStage`'s scale formula uses (§6.4).
+16. `nudge(t, image, 1, 0)` adds exactly 1 to `imageX` on an axis that overflows, whatever the
+    zoom — unlike `panBy`, the step does not depend on the overflow.
+17. `nudge` clamps to `[0, 100]` and leaves a non-overflowing axis alone, like `panBy`.
+18. `nudge` and `panBy` agree on direction as the user experiences it: `nudge(t, image, +1, 0)`
+    and a leftward drag (`panBy(t, image, -dx, 0)`, `dx > 0`) both increase `imageX`.
 
 ---
 
@@ -1892,6 +2353,11 @@ export const POST: RequestHandler = async ({ request }) => {
 };
 ```
 
+The image transform needs nothing of its own here: `imageZoom`/`imageX`/`imageY` are ordinary
+`CalendarOptions` fields, so they are validated by `parseCalendarOptions` and carried into
+every page by `stripScope`/`yearPages` like the scheme or the opacity. The endpoint is
+unchanged by §1.2.
+
 `sniffImageType(bytes)`: JPEG `FF D8 FF`; PNG `89 50 4E 47 0D 0A 1A 0A`; WebP `RIFF` at 0 and
 `WEBP` at 8. Content sniffing (not just the `Content-Type` header) is what keeps a renamed
 `.svg` or `.html` out of Chromium's parser. Unit-tested with the three magic prefixes plus a
@@ -2377,8 +2843,17 @@ the renderer singleton was **not** touched.
 ### 12.6 Client
 
 `src/lib/client/export.test.ts` with an injected `fetchImpl`: FormData shape, error mapping,
-filename fallback. `errors.test.ts`: every code maps to a Swedish string; unknown code falls
-back.
+filename fallback — including that the serialised `options` part carries `imageZoom`, `imageX`
+and `imageY` and does **not** carry `imageSize`. `errors.test.ts`: every code maps to a Swedish
+string; unknown code falls back — the new `invalid_image_zoom` / `invalid_image_x` /
+`invalid_image_y` need no new entry, they are covered by the existing `invalid_*` rule (§6.6).
+
+`src/lib/client/image-transform.test.ts` (§6.9): the eighteen pure cases. No DOM, no fixtures.
+
+`src/lib/client/app-state.test.ts` additionally: `toOptions` carries the three transform fields
+and never `imageSize`; `setImage` and `clearImage` both reset the transform to `1 / 50 / 50` and
+clear `imageSize`; `measureImage` with an injected measurer fills `imageSize`; a rejecting
+measurer leaves `imageSize` null and does not throw out of the caller.
 
 ### 12.7 What is deliberately not automated
 
@@ -2471,6 +2946,26 @@ year PDF from inside the container, confirm `docker stop` shuts down cleanly (lo
 service (keeping a short "design reference files" section); confirm no AI attribution anywhere;
 open the MR with screenshots.
 
+**Step 18 — Background pan and zoom** (added after 1.0; §1.2, §4.9, §6.9). Strictly in this
+order, each half red before green:
+
+1. `css.test.ts` → `pct()` in `css.ts` (§4.7).
+2. `options.test.ts` and `types.ts`: the three fields, `DEFAULT_OPTIONS`, and the three
+   validation branches in `parseCalendarOptions` (§3.1, §3.3, §4.10). Every existing
+   `CalendarOptions` literal in the suite gains the three defaults; the compiler finds them.
+3. `view.test.ts` → `ViewBackground` and `buildCalendarView`'s `background` (§4.9).
+4. `CalendarPage.ssr.test.ts` assertions 17–22 → the new background-layer style string (§5.2).
+   Re-record the snapshot (`vitest -u`) and **read the diff**: the only change must be that one
+   `<div>`'s style attribute.
+5. `image-transform.test.ts` → `image-transform.ts` (§6.9). Pure; no component yet.
+6. `app-state.test.ts` → `imageSize`, `measureImage`, `resetImageTransform`, and the reset
+   inside `setImage`/`clearImage` (§6.5).
+7. Wire the UI: `PreviewStage.svelte` (§6.4.1), `Sidebar.svelte` (§6.3), `+page.svelte`. Not
+   unit-tested — §12.7 already covers app chrome by manual check — so verify by hand:
+   `pnpm dev`, load a photo, drag it, wheel it, arrow it with the keyboard, reset it, export
+   the month and the year, and compare the PDF against the preview.
+8. Add `image-transform.ts` to the file map in `CLAUDE.md`.
+
 ---
 
 ## 14. Findings, deviations, open questions
@@ -2529,6 +3024,15 @@ the implementer must use these strings verbatim, and any further new copy needs 
 | `Egen rubrik används inte vid årsexport.` | sidebar hint under the title input (§6.3) |
 | all eight toast messages                  | §6.6                                      |
 
+Pan/zoom copy (§1.2), likewise verbatim:
+
+| String                                                               | Where                                        |
+| -------------------------------------------------------------------- | -------------------------------------------- |
+| `Zooma: {n} %`                                                       | sidebar zoom slider label (§6.3)             |
+| `Dra i förhandsvisningen för att flytta bilden.`                     | sidebar hint under the zoom slider (§6.3)    |
+| `Återställ bildens läge`                                             | sidebar reset button (§6.3)                  |
+| `Flytta bakgrundsbilden. Dra med musen eller använd piltangenterna.` | `aria-label` of the preview surface (§6.4.1) |
+
 ### 14.5 The prototype's `gap:-4px`
 
 `<span style="display:flex;gap:-4px">` in the scheme swatches is invalid CSS and is ignored by
@@ -2584,6 +3088,9 @@ No open questions remain. For the record:
 5. **The ~0.24 mm bottom sliver** → painted by `html, body { background: <scheme bg> }` in the
    print template. The page element is **never** enlarged past 210 mm (§7.4).
 6. **New Swedish copy** → approved as written (§14.4).
+7. **Pan and zoom of the background photo** → **in scope** (§1.2), zoom range 100–400 %, one
+   transform shared by all twelve pages of a year export, dragged directly in the preview.
+   **Crop remains out of scope** (§1.3). Pan/zoom copy approved as written (§14.4).
 
 ### 14.10 Deliberate simplifications (with their tradeoffs)
 
@@ -2598,3 +3105,24 @@ No open questions remain. For the record:
   simpler and uses far less memory than N browsers. Scale horizontally with replicas.
 - **No streaming PDF response.** `page.pdf()` returns a buffer; the whole PDF is ≤ a few MB.
 - **No `vite preview` end-to-end suite** (§12.5).
+
+### 14.11 Pan/zoom: the alternatives that were rejected
+
+Recorded because each one looks cheaper than the enlarged box (§4.9) until it is written down.
+
+- **`transform: scale(z) translate(…)` on the background layer.** Needs the photo's aspect
+  ratio to turn a focal-point percentage into a translation — a number layer 1 does not have
+  and, by §3.1, must never need. It also puts a transform inside a page that §2.5.3 keeps
+  transform-free, and makes preview and print depend on Chromium's rasterisation of a
+  transformed layer rather than on plain layout.
+- **`background-size: {z*100}% auto` instead of an enlarged box.** `cover` and a percentage
+  size are not interchangeable: which axis a percentage binds to depends on the photo's aspect,
+  so `z = 1` would no longer reduce to today's rendering for every photo.
+- **Sending the photo's natural size to the server** so the server can compute pixel offsets.
+  Adds two more validated fields, another way for client and server to disagree, and buys
+  nothing — the §4.9 form is aspect-ratio-free.
+- **Cropping on the client into a new `File`.** Would mean decoding and re-encoding a 20 MB
+  photo in the browser, a canvas round-trip, quality loss, and a second source of truth about
+  what the PDF contains. Crop stays out of scope (§1.3).
+- **Zoom about the cursor on wheel.** A second reference frame and a second set of tests, for
+  a refinement the drag plus the slider already deliver. §6.4.1 keeps the focal point fixed.

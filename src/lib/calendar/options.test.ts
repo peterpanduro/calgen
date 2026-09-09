@@ -26,6 +26,20 @@ describe('parseCalendarOptions — accepted input', () => {
 		expect(parse({ year: 2100, month: 11, opacity: 100 }).ok).toBe(true);
 	});
 
+	it('accepts the image-transform boundaries', () => {
+		expect(parse({ imageZoom: 1, imageX: 0, imageY: 0 }).ok).toBe(true);
+		expect(parse({ imageZoom: 4, imageX: 100, imageY: 100 }).ok).toBe(true);
+	});
+
+	it('round-trips a fractional transform unrounded and unclamped', () => {
+		const result = parse({ imageZoom: 1.5, imageX: 33.33, imageY: 66.67 });
+		expect(result.ok && result.value).toMatchObject({
+			imageZoom: 1.5,
+			imageX: 33.33,
+			imageY: 66.67
+		});
+	});
+
 	it('accepts the year scope', () => {
 		const result = parse({ scope: 'year' });
 		expect(result.ok && result.value.scope).toBe('year');
@@ -34,6 +48,26 @@ describe('parseCalendarOptions — accepted input', () => {
 	it('ignores unknown extra keys', () => {
 		const result = parse({ nonsense: 1 });
 		expect(result.ok && 'nonsense' in result.value).toBe(false);
+	});
+
+	it('defaults imageZoom/imageX/imageY when the keys are absent', () => {
+		const { imageZoom: _z, imageX: _x, imageY: _y, ...withoutImageTransform } = VALID;
+		const result = parseCalendarOptions(withoutImageTransform);
+		expect(result.ok && result.value).toMatchObject({
+			imageZoom: DEFAULT_OPTIONS.imageZoom,
+			imageX: DEFAULT_OPTIONS.imageX,
+			imageY: DEFAULT_OPTIONS.imageY
+		});
+	});
+
+	it('defaults only the missing image-transform key, keeping the others as sent', () => {
+		const { imageZoom: _z, ...withoutZoom } = VALID;
+		const result = parseCalendarOptions({ ...withoutZoom, imageX: 10, imageY: 90 });
+		expect(result.ok && result.value).toMatchObject({
+			imageZoom: DEFAULT_OPTIONS.imageZoom,
+			imageX: 10,
+			imageY: 90
+		});
 	});
 });
 
@@ -61,6 +95,22 @@ describe('parseCalendarOptions — rejected input', () => {
 		[{ showHolidays: 1 }, 'invalid_show_holidays'],
 		[{ title: 42 }, 'invalid_title'],
 		[{ title: 'x'.repeat(121) }, 'invalid_title'],
+		[{ imageZoom: 0.99 }, 'invalid_image_zoom'],
+		[{ imageZoom: 4.01 }, 'invalid_image_zoom'],
+		[{ imageZoom: '2' }, 'invalid_image_zoom'],
+		[{ imageZoom: Number.NaN }, 'invalid_image_zoom'],
+		[{ imageZoom: Number.POSITIVE_INFINITY }, 'invalid_image_zoom'],
+		[{ imageZoom: null }, 'invalid_image_zoom'],
+		[{ imageX: -0.01 }, 'invalid_image_x'],
+		[{ imageX: 100.01 }, 'invalid_image_x'],
+		[{ imageX: Number.NaN }, 'invalid_image_x'],
+		[{ imageX: '50' }, 'invalid_image_x'],
+		[{ imageX: null }, 'invalid_image_x'],
+		[{ imageY: -0.01 }, 'invalid_image_y'],
+		[{ imageY: 100.01 }, 'invalid_image_y'],
+		[{ imageY: Number.NaN }, 'invalid_image_y'],
+		[{ imageY: Number.NEGATIVE_INFINITY }, 'invalid_image_y'],
+		[{ imageY: null }, 'invalid_image_y'],
 		[{ scope: 'week' }, 'invalid_scope'],
 		[{ scope: undefined }, 'invalid_scope']
 	])('rejects %j with %s', (patch, code) => {
@@ -93,7 +143,13 @@ describe('stripScope', () => {
 });
 
 describe('yearPages', () => {
-	const pages = yearPages({ ...VALID, title: 'Vår trädgård' });
+	const pages = yearPages({
+		...VALID,
+		title: 'Vår trädgård',
+		imageZoom: 2.5,
+		imageX: 10,
+		imageY: 90
+	});
 
 	it('produces twelve pages, January to December', () => {
 		expect(pages).toHaveLength(12);
@@ -107,6 +163,12 @@ describe('yearPages', () => {
 	it('carries scheme, font, opacity and holidays across every page', () => {
 		expect(pages.every((p) => p.schemeId === 'organic' && p.opacity === 88)).toBe(true);
 		expect(pages.every((p) => !('scope' in p))).toBe(true);
+	});
+
+	it('carries one image transform across every page', () => {
+		expect(pages.every((p) => p.imageZoom === 2.5 && p.imageX === 10 && p.imageY === 90)).toBe(
+			true
+		);
 	});
 });
 

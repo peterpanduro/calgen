@@ -13,6 +13,18 @@ export function alpha(value: number): string {
 	return String(Math.round(value * 1000) / 1000);
 }
 
+/**
+ * Serialises a CSS percentage with two decimals.
+ *
+ * The background-layer offsets (SPEC §4.9) are products of two user-controlled floats, so
+ * `(1 - 1.37) * 33` would otherwise serialise as `-12.210000000000004`. Two decimals of a
+ * 297 mm page is 0.03 mm — below what any printer resolves. Interpolating `-0` yields `"0"`,
+ * so a negative zero needs no special handling.
+ */
+export function pct(value: number): string {
+	return `${Math.round(value * 100) / 100}%`;
+}
+
 /** `rgba(249,244,237,0.88)` from an `"R,G,B"` triple and an alpha. */
 export function rgba(triple: string, a: number): string {
 	return `rgba(${triple},${alpha(a)})`;

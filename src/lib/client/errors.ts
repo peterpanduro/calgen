@@ -19,7 +19,12 @@ const MESSAGES: Readonly<Record<string, string>> = {
 };
 
 const INVALID_SETTINGS = 'Ogiltiga inställningar. Kontrollera år och månad.';
-const FALLBACK = 'Något gick fel. Försök igen.';
+
+/**
+ * `Något gick fel. Försök igen.` — the generic message, exported so a caller with no API error
+ * code to map (a failed image decode, say) can show it without going through `errorMessage`.
+ */
+export const FALLBACK_MESSAGE = 'Något gick fel. Försök igen.';
 
 /**
  * Maps an API error code to the Swedish message shown in the toast. Unknown codes fall back to
@@ -30,5 +35,5 @@ export function errorMessage(code: string, maxUploadBytes?: number): string {
 	if (code === 'image_too_large') return imageTooLarge(maxUploadBytes);
 	if (Object.hasOwn(MESSAGES, code)) return MESSAGES[code];
 	if (code.startsWith('invalid_')) return INVALID_SETTINGS;
-	return FALLBACK;
+	return FALLBACK_MESSAGE;
 }

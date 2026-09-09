@@ -1,4 +1,4 @@
-import { rgba } from './css';
+import { pct, rgba } from './css';
 import { getFont, type FontPairing } from './fonts';
 import { buildGrid } from './grid';
 import { getScheme, type Scheme } from './schemes';
@@ -20,6 +20,18 @@ export interface ViewWeek {
 	cells: ViewCell[];
 }
 
+/** Geometry of the background-photo layer, pre-serialised as CSS values (SPEC §5.2). */
+export interface ViewBackground {
+	/** `left` of the enlarged box, e.g. `'-25%'`. */
+	left: string;
+	/** `top` of the enlarged box, e.g. `'-50%'`. */
+	top: string;
+	/** `width` and `height` of the enlarged box, e.g. `'200%'`. */
+	size: string;
+	/** `background-position` inside that box, e.g. `'25% 50%'`. */
+	position: string;
+}
+
 export interface CalendarView {
 	title: string;
 	rows: number;
@@ -29,6 +41,24 @@ export interface CalendarView {
 	dayNames: readonly string[];
 	scheme: Scheme;
 	font: FontPairing;
+	background: ViewBackground;
+}
+
+/**
+ * The photo layer as a box `zoom` times the page, offset by a negative percentage, with
+ * `background-size:cover` inside it.
+ *
+ * The image's left edge then lands at `x/100 · (W − zoom·C)` — precisely `background-position:
+ * x%` for a rendered width of `zoom·C` — with the photo's aspect ratio cancelling out, which is
+ * why layer 1 never needs the photo's natural size (SPEC §4.9).
+ */
+function backgroundOf(zoom: number, x: number, y: number): ViewBackground {
+	return {
+		left: pct((1 - zoom) * x),
+		top: pct((1 - zoom) * y),
+		size: pct(zoom * 100),
+		position: `${pct(x)} ${pct(y)}`
+	};
 }
 
 /** Adjacent-month cells are dimmed to 80 % of the chosen coverage. */
@@ -78,6 +108,7 @@ export function buildCalendarView(o: CalendarOptions): CalendarView {
 		weeks,
 		dayNames: DAY_NAMES,
 		scheme,
-		font
+		font,
+		background: backgroundOf(o.imageZoom, o.imageX, o.imageY)
 	};
 }
