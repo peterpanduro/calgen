@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildPrintHtml } from './print-html';
+import { BACKGROUND_IMAGE_URL, buildPrintHtml } from './print-html';
 
 const page = (n: number) => `<section data-page="${n}"></section>`;
-const build = (count: number, imageDataUrl: string | null = null, pageBg = '#f5ead8') =>
+const build = (count: number, hasImage = false, pageBg = '#f5ead8') =>
 	buildPrintHtml({
 		pages: Array.from({ length: count }, (_, i) => page(i)),
 		fontCss: '@font-face{font-family:"Figtree"}',
-		imageDataUrl,
+		hasImage,
 		pageBg
 	});
 
@@ -42,13 +42,13 @@ describe('buildPrintHtml', () => {
 	});
 
 	it('paints the root with the scheme background, covering the quantised page foot', () => {
-		expect(build(1, null, '#2e2b25').replace(/\s+/g, ' ')).toContain('background: #2e2b25');
+		expect(build(1, false, '#2e2b25').replace(/\s+/g, ' ')).toContain('background: #2e2b25');
 	});
 
-	it('declares the background image once as a custom property', () => {
-		const html = build(12, 'data:image/jpeg;base64,AAAA');
+	it('declares the background image once as a custom property pointing at the fixed URL', () => {
+		const html = build(12, true);
 		expect(countOf(html, '--calgen-bg')).toBe(1);
-		expect(html).toContain(':root{--calgen-bg:url("data:image/jpeg;base64,AAAA")}');
+		expect(html).toContain(`:root{--calgen-bg:url("${BACKGROUND_IMAGE_URL}")}`);
 	});
 
 	it('omits the custom property when there is no image', () => {
