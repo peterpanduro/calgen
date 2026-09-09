@@ -1399,17 +1399,34 @@ else.
 Under the title input, a hint in `font-size:12px;color:#645c50`:
 `Egen rubrik används inte vid årsexport.` (shown only when `title.trim() !== ''`).
 
-**Bakgrundsbild** — a `<label>` styled as an outlined pill
-(`display:flex;align-items:center;justify-content:center;height:44px;border-radius:999px;
-border:1.5px solid #c67139;color:#8c491a;font:600 15px 'Figtree',sans-serif;cursor:pointer;
-background:#fff2eb`, hover `#ffe1d0`) reading `Välj bild…` / `Byt bild`, wrapping a
+**Bakgrundsbild** — a `<div>` (`display:flex;gap:8px;align-items:stretch`) holding the file pill
+and, once an image is set, the removal button next to it.
+
+The file pill is a `<label>` styled as an outlined pill
+(`display:flex;align-items:center;justify-content:center;height:44px;flex:1;min-width:0;
+border-radius:999px;border:1.5px solid #c67139;color:#8c491a;font:600 15px 'Figtree',sans-serif;
+cursor:pointer;background:#fff2eb`, hover `#ffe1d0`) reading `Välj bild…` / `Byt bild`, wrapping a
 `<input type="file" accept="image/jpeg,image/png,image/webp">` that is **visually hidden but
 still focusable** (`position:absolute;width:1px;height:1px;opacity:0;pointer-events:none` on a
 `position:relative` label). `display:none` removes the input from the tab order entirely, which
-makes "Välj bild…" impossible to operate by keyboard.
-When an image is set, a text button `Ta bort bild`
-(`border:0;background:none;cursor:pointer;color:#645c50;font:600 13px 'Figtree',sans-serif;
-text-align:left;padding:0 14px`).
+makes "Välj bild…" impossible to operate by keyboard. `flex:1;min-width:0` is what keeps the pill
+filling the row both with and without the removal button beside it.
+
+Two controls share one secondary-pill token, `pill-secondary`
+(`display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 16px;
+border-radius:999px;border:1.5px solid #dcd3c4;background:#fbf7f1;color:#645c50;
+font:600 13px 'Figtree',sans-serif;cursor:pointer;white-space:nowrap`; hover, when not disabled,
+`border-color:#c67139;color:#8c491a;background:#fff2eb`; disabled `opacity:.45;cursor:default`,
+with no hover change). Its focus ring is the pre-existing global `button:focus-visible` rule in
+`src/app.css`, not a rule of its own.
+
+When an image is set, `Ta bort bild` sits beside the file pill using the _pill-secondary_ token
+above, with `height` overridden to `auto` so the row's `align-items:stretch` grows it to the
+file pill's 44px:
+
+```
+<button type="button" style="{pill-secondary};height:auto">Ta bort bild</button>
+```
 
 **Only when an image is set**, the zoom control follows it — the same slider token as the
 coverage slider below, plus a reset:
@@ -1420,7 +1437,7 @@ coverage slider below, plus a reset:
   <input type="range" min="100" max="400" step="1" style="accent-color:#c67139">
 </label>
 <p style="margin:0;font-size:12px;color:#645c50">Dra i förhandsvisningen för att flytta bilden.</p>
-<button type="button" class="text-button">Återställ bildens läge</button>
+<button type="button" style="{pill-secondary};width:100%">Återställ bildens läge</button>
 ```
 
 The slider's DOM value is **percent** (an integer 100–400, so the native keyboard step is a
@@ -1429,9 +1446,9 @@ sane 1 %); state holds the ratio. Read `imageZoom = Number(input.value) / 100`, 
 sees an out-of-range zoom from this control — the UI clamps, the API rejects (§3.3).
 
 `Återställ bildens läge` sets `imageZoom = 1`, `imageX = 50`, `imageY = 50` and nothing else;
-it does not touch the photo, the coverage or any other setting. It is disabled (`disabled`,
-`opacity:.5;cursor:default`) when the transform already is the default, so it never reads as a
-control that does nothing.
+it does not touch the photo, the coverage or any other setting. It is disabled (`disabled`)
+at the default transform, taking the _pill-secondary_ disabled state above, so it never reads
+as a control that does nothing.
 
 Then the coverage slider, unchanged and always shown:
 

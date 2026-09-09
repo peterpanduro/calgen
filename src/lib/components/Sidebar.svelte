@@ -98,14 +98,18 @@
 
 	<section>
 		<h2>Bakgrundsbild</h2>
-		<label class="file-pill">
-			{app.imageUrl ? 'Byt bild' : 'Välj bild…'}
-			<input type="file" accept="image/jpeg,image/png,image/webp" onchange={pickImage} />
-		</label>
+		<div class="image-actions">
+			<label class="file-pill">
+				{app.imageUrl ? 'Byt bild' : 'Välj bild…'}
+				<input type="file" accept="image/jpeg,image/png,image/webp" onchange={pickImage} />
+			</label>
+			{#if app.imageUrl}
+				<button type="button" class="pill-secondary" onclick={() => clearImage(app)}>
+					Ta bort bild
+				</button>
+			{/if}
+		</div>
 		{#if app.imageUrl}
-			<button type="button" class="text-button" onclick={() => clearImage(app)}>
-				Ta bort bild
-			</button>
 			<label class="slider">
 				<span>Zooma: {Math.round(app.imageZoom * 100)} %</span>
 				<!-- The DOM value is percent, so the native keyboard step is a sane 1 %; state holds
@@ -123,7 +127,7 @@
 			<p class="hint">Dra i förhandsvisningen för att flytta bilden.</p>
 			<button
 				type="button"
-				class="text-button"
+				class="pill-secondary reset-transform"
 				disabled={isDefaultTransform}
 				onclick={() => resetImageTransform(app)}
 			>
@@ -268,21 +272,46 @@
 		outline: 2px solid #c67139;
 		outline-offset: 2px;
 	}
-	.text-button {
-		border: 0;
-		background: none;
-		cursor: pointer;
+	.image-actions {
+		display: flex;
+		gap: 8px;
+		align-items: stretch;
+	}
+	.image-actions .file-pill {
+		flex: 1;
+		min-width: 0;
+	}
+	.pill-secondary {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		height: 36px;
+		padding: 0 16px;
+		border-radius: 999px;
+		border: 1.5px solid #dcd3c4;
+		background: #fbf7f1;
 		color: #645c50;
 		font:
 			600 13px 'Figtree',
 			sans-serif;
-		text-align: left;
-		padding: 0 14px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.pill-secondary:hover:not(:disabled) {
+		border-color: #c67139;
+		color: #8c491a;
+		background: #fff2eb;
 	}
 	/* So the reset never reads as a control that does nothing. */
-	.text-button:disabled {
-		opacity: 0.5;
+	.pill-secondary:disabled {
+		opacity: 0.45;
 		cursor: default;
+	}
+	.image-actions .pill-secondary {
+		height: auto;
+	}
+	.reset-transform {
+		width: 100%;
 	}
 	.slider {
 		display: flex;
