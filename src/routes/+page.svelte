@@ -8,10 +8,12 @@
 	import {
 		createAppState,
 		dismissToast,
+		measureImage,
 		revokeImageOnUnload,
 		showToast,
 		toOptions
 	} from '$lib/client/app-state.svelte';
+	import type { Transform } from '$lib/client/image-transform';
 	import { errorMessage } from '$lib/client/errors';
 	import { ExportError, downloadBlob, exportPdf } from '$lib/client/export';
 	import type { LayoutServerData } from './$types';
@@ -24,6 +26,13 @@
 	const imageCss = $derived(imageCssOf(state.imageUrl));
 
 	$effect(() => revokeImageOnUnload(state));
+
+	/** The transform lives on the state object like every other control — no second copy. */
+	function applyTransform(t: Transform) {
+		state.imageZoom = t.imageZoom;
+		state.imageX = t.imageX;
+		state.imageY = t.imageY;
+	}
 
 	async function runExport(scope: ExportScope) {
 		if (state.exporting) return;
@@ -50,8 +59,9 @@
 		app={state}
 		maxUploadBytes={data.maxUploadBytes}
 		onReject={(message) => showToast(state, 'error', message)}
+		onImage={() => void measureImage(state)}
 	/>
-	<PreviewStage {options} {imageCss}>
+	<PreviewStage {options} {imageCss} imageSize={state.imageSize} onTransform={applyTransform}>
 		{#if state.toast}
 			<Toast text={state.toast.text} onDismiss={() => dismissToast(state)} />
 		{/if}

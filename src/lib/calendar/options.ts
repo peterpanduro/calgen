@@ -17,6 +17,12 @@ const FONT_IDS: ReadonlySet<string> = new Set(FONTS.map((f) => f.id));
 const isIntBetween = (v: unknown, lo: number, hi: number): v is number =>
 	typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 
+// The three image-transform fields are the only non-integer numbers in the payload: a drag
+// produces fractions. `Number.isFinite` still rejects NaN and ±Infinity, which would otherwise
+// serialise into the style string as `left:NaN%` and be dropped silently by the browser.
+const isFiniteBetween = (v: unknown, lo: number, hi: number): v is number =>
+	typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+
 /**
  * Validates an untrusted payload into an {@link ExportRequest}.
  *
@@ -50,6 +56,12 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 			'invalid_title',
 			`Field "title" must be a string of at most ${MAX_TITLE_LENGTH} characters with no control characters.`
 		);
+	if (!isFiniteBetween(o.imageZoom, 1, 4))
+		return fail('invalid_image_zoom', 'Field "imageZoom" must be a finite number between 1 and 4.');
+	if (!isFiniteBetween(o.imageX, 0, 100))
+		return fail('invalid_image_x', 'Field "imageX" must be a finite number between 0 and 100.');
+	if (!isFiniteBetween(o.imageY, 0, 100))
+		return fail('invalid_image_y', 'Field "imageY" must be a finite number between 0 and 100.');
 	if (o.scope !== 'month' && o.scope !== 'year')
 		return fail('invalid_scope', 'Field "scope" must be "month" or "year".');
 
@@ -63,6 +75,9 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 			opacity: o.opacity,
 			showHolidays: o.showHolidays,
 			title: o.title,
+			imageZoom: o.imageZoom,
+			imageX: o.imageX,
+			imageY: o.imageY,
 			scope: o.scope as ExportScope
 		}
 	};

@@ -14,6 +14,12 @@ export interface CalendarOptions {
 	showHolidays: boolean;
 	/** Custom title. Empty string means "use the default `<Månad> <År>`". */
 	title: string;
+	/** Background-photo zoom. Finite, 1–4. 1 = plain `cover`. */
+	imageZoom: number;
+	/** Horizontal focal point of the photo, in `background-position` percent. Finite, 0–100. */
+	imageX: number;
+	/** Vertical focal point of the photo, in `background-position` percent. Finite, 0–100. */
+	imageY: number;
 }
 
 export const DEFAULT_OPTIONS: CalendarOptions = {
@@ -23,7 +29,10 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 	fontId: 'organic',
 	opacity: 88,
 	showHolidays: true,
-	title: ''
+	title: '',
+	imageZoom: 1,
+	imageX: 50,
+	imageY: 50
 };
 
 export type ExportScope = 'month' | 'year';

@@ -2,9 +2,15 @@
 	import { FONTS } from '$lib/calendar/fonts';
 	import { SCHEMES } from '$lib/calendar/schemes';
 	import { MONTHS, defaultTitle } from '$lib/calendar/strings';
-	import type { FontId, SchemeId } from '$lib/calendar/types';
-	import { clearImage, setImage, type AppState } from '$lib/client/app-state.svelte';
+	import { DEFAULT_OPTIONS, type FontId, type SchemeId } from '$lib/calendar/types';
+	import {
+		clearImage,
+		resetImageTransform,
+		setImage,
+		type AppState
+	} from '$lib/client/app-state.svelte';
 	import { UNSUPPORTED_IMAGE_TYPE, imageTooLarge } from '$lib/client/errors';
+	import { MAX_ZOOM, MIN_ZOOM } from '$lib/client/image-transform';
 
 	interface Props {
 		app: AppState;
@@ -12,9 +18,17 @@
 		maxUploadBytes: number;
 		/** Called with a Swedish message when a chosen file is rejected. */
 		onReject: (message: string) => void;
+		/** Called after a file is accepted, so the page can measure it (SPEC §6.5). */
+		onImage?: () => void;
 	}
 
-	let { app, maxUploadBytes, onReject }: Props = $props();
+	let { app, maxUploadBytes, onReject, onImage }: Props = $props();
+
+	const isDefaultTransform = $derived(
+		app.imageZoom === DEFAULT_OPTIONS.imageZoom &&
+			app.imageX === DEFAULT_OPTIONS.imageX &&
+			app.imageY === DEFAULT_OPTIONS.imageY
+	);
 
 	const ACCEPTED = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -32,6 +46,7 @@
 			return;
 		}
 		setImage(app, file);
+		onImage?.();
 	}
 
 	function clampYear(event: Event) {
@@ -90,6 +105,29 @@
 		{#if app.imageUrl}
 			<button type="button" class="text-button" onclick={() => clearImage(app)}>
 				Ta bort bild
+			</button>
+			<label class="slider">
+				<span>Zooma: {Math.round(app.imageZoom * 100)} %</span>
+				<!-- The DOM value is percent, so the native keyboard step is a sane 1 %; state holds
+				     the ratio. min/max come from the same constants the pan/zoom math clamps to, so
+				     this control cannot produce a zoom the API would reject (SPEC §3.3). -->
+				<input
+					type="range"
+					min={MIN_ZOOM * 100}
+					max={MAX_ZOOM * 100}
+					step="1"
+					value={Math.round(app.imageZoom * 100)}
+					oninput={(event) => (app.imageZoom = Number(event.currentTarget.value) / 100)}
+				/>
+			</label>
+			<p class="hint">Dra i förhandsvisningen för att flytta bilden.</p>
+			<button
+				type="button"
+				class="text-button"
+				disabled={isDefaultTransform}
+				onclick={() => resetImageTransform(app)}
+			>
+				Återställ bildens läge
 			</button>
 		{/if}
 		<label class="slider">
@@ -240,6 +278,11 @@
 			sans-serif;
 		text-align: left;
 		padding: 0 14px;
+	}
+	/* So the reset never reads as a control that does nothing. */
+	.text-button:disabled {
+		opacity: 0.5;
+		cursor: default;
 	}
 	.slider {
 		display: flex;

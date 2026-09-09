@@ -32,6 +32,19 @@ describe('request shape', () => {
 		expect(parsed).toEqual({ ...DEFAULT_OPTIONS, scope: 'year' });
 	});
 
+	it('sends the image transform but never the client-only measured size', async () => {
+		const fetchImpl = ok();
+		await exportPdf(
+			{ ...DEFAULT_OPTIONS, imageZoom: 2, imageX: 25, imageY: 75 },
+			'month',
+			null,
+			fetchImpl
+		);
+		const parsed = JSON.parse(bodyOf(fetchImpl).get('options') as string);
+		expect(parsed).toMatchObject({ imageZoom: 2, imageX: 25, imageY: 75 });
+		expect('imageSize' in parsed).toBe(false);
+	});
+
 	it('omits the image part when there is no image', async () => {
 		const fetchImpl = ok();
 		await exportPdf(DEFAULT_OPTIONS, 'month', null, fetchImpl);

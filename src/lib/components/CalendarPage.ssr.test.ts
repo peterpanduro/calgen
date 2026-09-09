@@ -12,7 +12,10 @@ const FIXTURE: CalendarOptions = {
 	fontId: 'organic',
 	opacity: 88,
 	showHolidays: true,
-	title: ''
+	title: '',
+	imageZoom: 1,
+	imageX: 50,
+	imageY: 50
 };
 
 const body = (options: Partial<CalendarOptions> = {}, imageCss?: string): string =>
@@ -118,6 +121,49 @@ describe('option variations', () => {
 
 	it('applies the klassisk heading weight to the title', () => {
 		expect(body({ fontId: 'klassisk' })).toContain('font-weight:500;font-size:40px');
+	});
+});
+
+describe('background layer geometry', () => {
+	const LAYERS: [string, Partial<CalendarOptions>, string][] = [
+		['the default transform', {}, 'left:0%;top:0%;width:100%;height:100%'],
+		[
+			'zoom 2 panned left',
+			{ imageZoom: 2, imageX: 25 },
+			'left:-25%;top:-50%;width:200%;height:200%'
+		],
+		[
+			'zoom 4 in the bottom-left corner',
+			{ imageZoom: 4, imageX: 0, imageY: 100 },
+			'left:0%;top:-300%;width:400%;height:400%'
+		]
+	];
+	const position = (o: Partial<CalendarOptions>) =>
+		`background-size:cover;background-position:${o.imageX ?? 50}% ${o.imageY ?? 50}%`;
+
+	// The transform is a property of the layer, not of the photo: it holds with and without one.
+	it.each(LAYERS)('emits %s as an enlarged box, with no photo', (_name, options, box) => {
+		expect(body(options)).toContain(`${box};${position(options)}`);
+	});
+
+	it.each(LAYERS)('emits %s identically with a photo', (_name, options, box) => {
+		expect(body(options, 'var(--calgen-bg)')).toContain(`${box};${position(options)}`);
+	});
+
+	it('rounds the offsets rather than leaking the float product', () => {
+		const html = body({ imageZoom: 1.37, imageX: 33, imageY: 66 });
+		expect(html).toContain('left:-12.21%');
+		expect(html).not.toContain(String((1 - 1.37) * 33));
+	});
+
+	it('carries no transform on the layer, and keeps the clip that hides its overflow', () => {
+		// Not a blanket check: the week pills legitimately carry transform:rotate(180deg).
+		const layer = /<div style="(position:absolute[^"]*)"/.exec(body({ imageZoom: 4 }));
+		expect(layer?.[1]).not.toContain('transform');
+		// Anchored to the root <section>: that is the element whose clip hides the layer at z > 1,
+		// and an unanchored match would pass on any nested overflow:hidden.
+		const root = /<section[^>]*\sstyle="([^"]*)"/.exec(body());
+		expect(root?.[1]).toContain('overflow:hidden');
 	});
 });
 

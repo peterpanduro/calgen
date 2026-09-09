@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alpha, imageCss, rgba } from './css';
+import { alpha, imageCss, pct, rgba } from './css';
 
 describe('alpha', () => {
 	it('rounds to three decimals instead of leaking float noise', () => {
@@ -28,6 +28,21 @@ describe('rgba', () => {
 
 	it('rounds the alpha the same way as alpha()', () => {
 		expect(rgba('220,211,196', 0.88 * 0.8)).toBe('rgba(220,211,196,0.704)');
+	});
+});
+
+describe('pct', () => {
+	it('serialises the range boundaries without decimals', () => {
+		expect(pct(0)).toBe('0%');
+		expect(pct(100)).toBe('100%');
+	});
+
+	it('rounds to two decimals instead of leaking float noise', () => {
+		expect(pct((1 - 1.37) * 33)).toBe('-12.21%');
+	});
+
+	it('never emits a negative zero', () => {
+		expect(pct(-0.001)).toBe('0%');
 	});
 });
 

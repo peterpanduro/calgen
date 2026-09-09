@@ -3,15 +3,31 @@ import {
 	clearImage,
 	createAppState,
 	dismissToast,
+	measureImage,
+	resetImageTransform,
 	revokeImageOnUnload,
 	setImage,
 	showToast,
 	toOptions
 } from './app-state.svelte';
+import { FALLBACK_MESSAGE } from './errors';
 import { DEFAULT_OPTIONS } from '$lib/calendar/types';
 
 const jpeg = (name = 'a.jpg') =>
 	new File([new Uint8Array([0xff, 0xd8, 0xff])], name, { type: 'image/jpeg' });
+
+/** A promise whose settlement the test drives, so a measurement can be left in flight. */
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason: unknown) => void;
+	const promise = new Promise<T>((res, rej) => {
+		resolve = res;
+		reject = rej;
+	});
+	// Nothing awaits a rejection until `measureImage` does; keep Node from calling it unhandled.
+	promise.catch(() => {});
+	return { promise, resolve, reject };
+}
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -28,6 +44,7 @@ describe('createAppState', () => {
 		expect(state.imageUrl).toBeNull();
 		expect(state.exporting).toBeNull();
 		expect(state.toast).toBeNull();
+		expect(state.imageSize).toBeNull();
 	});
 });
 
@@ -40,6 +57,96 @@ describe('toOptions', () => {
 		expect(options.title).toBe('Vår trädgård');
 		expect('exporting' in options).toBe(false);
 		expect('imageFile' in options).toBe(false);
+	});
+
+	it('carries the image transform but never the measured size', () => {
+		const state = createAppState();
+		state.imageZoom = 2.5;
+		state.imageX = 10;
+		state.imageY = 90;
+		state.imageSize = { width: 4000, height: 3000 };
+		const options = toOptions(state);
+		expect(options).toMatchObject({ imageZoom: 2.5, imageX: 10, imageY: 90 });
+		expect('imageSize' in options).toBe(false);
+	});
+});
+
+describe('resetImageTransform', () => {
+	it('restores the default zoom and focal point and nothing else', () => {
+		const state = createAppState();
+		Object.assign(state, { imageZoom: 3, imageX: 0, imageY: 100, opacity: 40 });
+		resetImageTransform(state);
+		expect(toOptions(state)).toMatchObject({ imageZoom: 1, imageX: 50, imageY: 50, opacity: 40 });
+	});
+});
+
+describe('measureImage', () => {
+	it('stores the decoded pixel size for the current object URL', async () => {
+		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:one');
+		const state = createAppState();
+		setImage(state, jpeg());
+		const measure = vi.fn(async () => ({ width: 4000, height: 3000 }));
+		await measureImage(state, measure);
+		expect(measure).toHaveBeenCalledExactlyOnceWith('blob:one');
+		expect(state.imageSize).toEqual({ width: 4000, height: 3000 });
+	});
+
+	it('does nothing when no image is set', async () => {
+		const measure = vi.fn(async () => ({ width: 1, height: 1 }));
+		const state = createAppState();
+		await measureImage(state, measure);
+		expect(measure).not.toHaveBeenCalled();
+		expect(state.imageSize).toBeNull();
+	});
+
+	it('reports an undecodable photo as a toast instead of throwing at the caller', async () => {
+		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:one');
+		const state = createAppState();
+		setImage(state, jpeg());
+		await expect(
+			measureImage(state, async () => {
+				throw new Error('decode failed');
+			})
+		).resolves.toBeUndefined();
+		expect(state.imageSize).toBeNull();
+		expect(state.toast).toEqual({ kind: 'error', text: FALLBACK_MESSAGE });
+	});
+
+	it('ignores a measurement that resolves after the photo was replaced', async () => {
+		const create = vi.spyOn(URL, 'createObjectURL');
+		create.mockReturnValueOnce('blob:one').mockReturnValueOnce('blob:two');
+		vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+		const state = createAppState();
+		setImage(state, jpeg('one.jpg'));
+		const settle = deferred<{ width: number; height: number }>();
+		const pending = measureImage(state, () => settle.promise);
+		setImage(state, jpeg('two.jpg'));
+		settle.resolve({ width: 4000, height: 3000 });
+		await pending;
+		expect(state.imageSize).toBeNull();
+	});
+
+	it('stays silent when a measurement fails after the photo was replaced', async () => {
+		const create = vi.spyOn(URL, 'createObjectURL');
+		create.mockReturnValueOnce('blob:one').mockReturnValueOnce('blob:two');
+		vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+		const state = createAppState();
+		setImage(state, jpeg('one.jpg'));
+		const settle = deferred<{ width: number; height: number }>();
+		const pending = measureImage(state, () => settle.promise);
+		setImage(state, jpeg('two.jpg'));
+		settle.reject(new Error('decode failed'));
+		await pending;
+		expect(state.toast).toBeNull();
+	});
+
+	// A 0×0 measurement would make coverSize divide by zero and leak NaN into imageX/imageY.
+	it('rejects a degenerate measurement rather than storing a zero dimension', async () => {
+		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:one');
+		const state = createAppState();
+		setImage(state, jpeg());
+		await measureImage(state, async () => ({ width: 0, height: 0 }));
+		expect(state.imageSize).toBeNull();
 	});
 });
 
@@ -73,6 +180,26 @@ describe('setImage / clearImage', () => {
 		expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:one');
 		expect(state.imageFile).toBeNull();
 		expect(state.imageUrl).toBeNull();
+	});
+
+	// A transform is meaningful only against the photo it was chosen for.
+	it.each([
+		['setImage', (state: ReturnType<typeof createAppState>) => setImage(state, jpeg('two.jpg'))],
+		['clearImage', clearImage]
+	])('resets the transform and forgets the measured size on %s', (_name, act) => {
+		vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:one');
+		vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+		const state = createAppState();
+		setImage(state, jpeg());
+		Object.assign(state, {
+			imageZoom: 4,
+			imageX: 0,
+			imageY: 100,
+			imageSize: { width: 4000, height: 3000 }
+		});
+		act(state);
+		expect(state.imageSize).toBeNull();
+		expect(toOptions(state)).toMatchObject({ imageZoom: 1, imageX: 50, imageY: 50 });
 	});
 
 	it('is a no-op when clearing with no image set', () => {

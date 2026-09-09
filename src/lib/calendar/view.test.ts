@@ -9,7 +9,10 @@ const BASE: CalendarOptions = {
 	fontId: 'organic',
 	opacity: 88,
 	showHolidays: true,
-	title: ''
+	title: '',
+	imageZoom: 1,
+	imageX: 50,
+	imageY: 50
 };
 
 const view = (o: Partial<CalendarOptions> = {}) => buildCalendarView({ ...BASE, ...o });
@@ -100,4 +103,24 @@ describe('other option combinations', () => {
 		const cells = view({ month: 5, showHolidays: false }).weeks.flatMap((w) => w.cells);
 		expect(cells.every((c) => c.holiday === '')).toBe(true);
 	});
+});
+
+describe('background geometry', () => {
+	it.each([
+		[1, 50, 50, '0%', '0%', '100%', '50% 50%'],
+		[2, 25, 50, '-25%', '-50%', '200%', '25% 50%'],
+		[4, 0, 100, '0%', '-300%', '400%', '0% 100%'],
+		// The last row is the rounding regression: unrounded, left would be -12.210000000000004%.
+		[1.37, 33, 66, '-12.21%', '-24.42%', '137%', '33% 66%']
+	])(
+		'resolves zoom %f at %f/%f to the enlarged box',
+		(imageZoom, imageX, imageY, left, top, size, position) => {
+			expect(view({ imageZoom, imageX, imageY }).background).toEqual({
+				left,
+				top,
+				size,
+				position
+			});
+		}
+	);
 });

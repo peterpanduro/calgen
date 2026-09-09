@@ -2,8 +2,9 @@
 
 CalGen is a stateless SvelteKit service that generates printable Swedish wall-calendar PDFs:
 A4 landscape (297 × 210 mm), one month per page, large day boxes for handwriting. The user
-picks year/month, an optional title, a background photo, box coverage, a colour scheme and a
-font pairing, sees a live preview, and exports either the chosen month or all twelve months.
+picks year/month, an optional title, a background photo (zoomable and movable to pick the
+crop), box coverage, a colour scheme and a font pairing, sees a live preview, and exports
+either the chosen month or all twelve months.
 
 `docs/SPEC.md` is normative. `docs/DEVIATIONS.md` lists every place the code differs from it.
 
@@ -70,7 +71,10 @@ src/lib/components/             LAYER 2 — Svelte, props in / HTML out
 	CalendarPage.svelte           THE calendar page; no style block, inline styles only
 	PreviewStage.svelte           scaling wrapper (app only)
 	TopBar.svelte Sidebar.svelte Toast.svelte
-src/lib/client/                 browser-only: app state, export request, error messages
+src/lib/client/                 browser-only
+	app-state.svelte.ts           app state, image selection and measurement
+	export.ts errors.ts           export request, Swedish error messages
+	image-transform.ts            pure pan/zoom math for the preview
 src/lib/server/                 LAYER 3 — Node only
 	config.ts log.ts semaphore.ts fonts.ts image.ts version.ts
 	pdf/types.ts                  BrowserLike / PageLike / PdfRenderer

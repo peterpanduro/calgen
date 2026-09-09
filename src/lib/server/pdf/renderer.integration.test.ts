@@ -60,6 +60,15 @@ describe.skipIf(!exe)('pdf integration (real Chromium)', () => {
 		expect(withImage.length).toBeGreaterThan(plain.length);
 	});
 
+	it('renders a zoomed and panned background as one page', async () => {
+		const bytes = await renderer.render({
+			pages: [month({ imageZoom: 2, imageX: 25, imageY: 50 })],
+			imageDataUrl: tinyJpeg()
+		});
+		expect(isPdf(bytes)).toBe(true);
+		expect(pageCount(bytes)).toBe(1);
+	});
+
 	it('embeds the heading font as a subset', async () => {
 		const bytes = await renderer.render({ pages: [month()], imageDataUrl: null });
 		const text = asLatin1(bytes);
