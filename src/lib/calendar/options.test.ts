@@ -49,6 +49,26 @@ describe('parseCalendarOptions — accepted input', () => {
 		const result = parse({ nonsense: 1 });
 		expect(result.ok && 'nonsense' in result.value).toBe(false);
 	});
+
+	it('defaults imageZoom/imageX/imageY when the keys are absent', () => {
+		const { imageZoom: _z, imageX: _x, imageY: _y, ...withoutImageTransform } = VALID;
+		const result = parseCalendarOptions(withoutImageTransform);
+		expect(result.ok && result.value).toMatchObject({
+			imageZoom: DEFAULT_OPTIONS.imageZoom,
+			imageX: DEFAULT_OPTIONS.imageX,
+			imageY: DEFAULT_OPTIONS.imageY
+		});
+	});
+
+	it('defaults only the missing image-transform key, keeping the others as sent', () => {
+		const { imageZoom: _z, ...withoutZoom } = VALID;
+		const result = parseCalendarOptions({ ...withoutZoom, imageX: 10, imageY: 90 });
+		expect(result.ok && result.value).toMatchObject({
+			imageZoom: DEFAULT_OPTIONS.imageZoom,
+			imageX: 10,
+			imageY: 90
+		});
+	});
 });
 
 describe('parseCalendarOptions — rejected input', () => {
@@ -80,14 +100,17 @@ describe('parseCalendarOptions — rejected input', () => {
 		[{ imageZoom: '2' }, 'invalid_image_zoom'],
 		[{ imageZoom: Number.NaN }, 'invalid_image_zoom'],
 		[{ imageZoom: Number.POSITIVE_INFINITY }, 'invalid_image_zoom'],
+		[{ imageZoom: null }, 'invalid_image_zoom'],
 		[{ imageX: -0.01 }, 'invalid_image_x'],
 		[{ imageX: 100.01 }, 'invalid_image_x'],
 		[{ imageX: Number.NaN }, 'invalid_image_x'],
 		[{ imageX: '50' }, 'invalid_image_x'],
+		[{ imageX: null }, 'invalid_image_x'],
 		[{ imageY: -0.01 }, 'invalid_image_y'],
 		[{ imageY: 100.01 }, 'invalid_image_y'],
 		[{ imageY: Number.NaN }, 'invalid_image_y'],
 		[{ imageY: Number.NEGATIVE_INFINITY }, 'invalid_image_y'],
+		[{ imageY: null }, 'invalid_image_y'],
 		[{ scope: 'week' }, 'invalid_scope'],
 		[{ scope: undefined }, 'invalid_scope']
 	])('rejects %j with %s', (patch, code) => {

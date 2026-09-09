@@ -294,10 +294,18 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 };
 ```
 
-`imageZoom`, `imageX` and `imageY` are **always present**, whether or not a photo is chosen;
-there is no `null` state and no optionality to branch on. They describe the background layer's
-geometry, which the page emits unconditionally (§5.2) — with `background-image:none` the values
-are simply invisible.
+The client **always sends** `imageZoom`, `imageX` and `imageY`, whether or not a photo is
+chosen; there is no `null` state and no optionality to branch on in the UI. They describe the
+background layer's geometry, which the page emits unconditionally (§5.2) — with
+`background-image:none` the values are simply invisible.
+
+On the wire, though, the three fields are **optional**: `parseCalendarOptions` (§3.3) defaults
+each one from `DEFAULT_OPTIONS` (`imageZoom: 1`, `imageX: 50`, `imageY: 50` — plain `cover`/
+`center`) when its key is absent from the payload. This is a backward-compatibility carve-out
+for the public API: a pre-feature caller's request has no reason to know about these fields,
+and omitting them must keep producing the pre-feature rendering rather than a `400`. A field
+that is present, `null` included, is still validated exactly as below — only a genuinely
+missing key defaults.
 
 `imageX` / `imageY` carry exactly CSS `background-position` percentage semantics, generalised
 to zoom (§4.9): `0` aligns the image's left/top edge with the page's, `50` centres it, `100`
@@ -335,10 +343,18 @@ pure-logic layer never sees binary data.
 | `opacity`            | `Number.isInteger`, `30 ≤ opacity ≤ 100`                               | `invalid_opacity`       |
 | `showHolidays`       | `typeof === 'boolean'`                                                 | `invalid_show_holidays` |
 | `title`              | `typeof === 'string'`, length ≤ 120, no control characters (see below) | `invalid_title`         |
-| `imageZoom`          | `Number.isFinite`, `1 ≤ imageZoom ≤ 4`                                 | `invalid_image_zoom`    |
-| `imageX`             | `Number.isFinite`, `0 ≤ imageX ≤ 100`                                  | `invalid_image_x`       |
-| `imageY`             | `Number.isFinite`, `0 ≤ imageY ≤ 100`                                  | `invalid_image_y`       |
+| `imageZoom`          | absent → defaults to `1`; else `Number.isFinite`, `1 ≤ imageZoom ≤ 4`  | `invalid_image_zoom`    |
+| `imageX`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageX ≤ 100`  | `invalid_image_x`       |
+| `imageY`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageY ≤ 100`  | `invalid_image_y`       |
 | `scope`              | `'month'` or `'year'`                                                  | `invalid_scope`         |
+
+`imageZoom`/`imageX`/`imageY` are the only **optional** fields: a missing key defaults from
+`DEFAULT_OPTIONS` (§3.1) instead of failing. Optionality is keyed on the key being absent
+(`o.imageZoom === undefined`), not on the value being falsy or nullish — `imageZoom: null` is
+**present** and fails `invalid_image_zoom` exactly like `imageZoom: '2'` would. This keeps the
+public API backward compatible: a request built before this feature existed, which never had a
+reason to send these fields, still renders — with the pre-feature `cover`/`center` geometry —
+instead of getting a `400`. Every other field remains required with no default.
 
 The three image fields are the only **non-integer** numbers in the payload — a drag produces
 fractions — so they are checked with `Number.isFinite`, not `Number.isInteger`. `NaN`,
@@ -959,7 +975,9 @@ For the image transform specifically: `imageZoom: 1` and `imageZoom: 4` are acce
 `imageY` and `invalid_image_y`); a fractional `imageZoom: 1.5` with `imageX: 33.33` round-trips
 unchanged — the parser must not round or clamp them, since rounding is the renderer's job
 (§4.7) and clamping is the UI's (§3.3); and `yearPages` carries all three across every one of
-the twelve pages.
+the twelve pages. An options object with all three keys omitted parses `ok: true` with
+`imageZoom: 1`, `imageX: 50`, `imageY: 50` (§3.1's defaults); `imageZoom: null` is present, not
+absent, so it fails `invalid_image_zoom` (and likewise `imageX: null` / `imageY: null`).
 
 ---
 
