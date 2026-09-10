@@ -44,7 +44,8 @@ export function toOptions(state: AppState): CalendarOptions {
 		title: state.title,
 		imageZoom: state.imageZoom,
 		imageX: state.imageX,
-		imageY: state.imageY
+		imageY: state.imageY,
+		paperSize: state.paperSize
 	};
 }
 

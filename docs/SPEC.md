@@ -11,8 +11,8 @@ implementation against it. Where it says MUST, deviating requires product-owner 
 
 ### 1.1 Purpose
 
-CalGen is a stateless web service that generates printable A4-landscape wall-calendar pages
-(one month per page, large day boxes for handwriting). The user picks year and month, an
+CalGen is a stateless web service that generates printable landscape wall-calendar pages, A4
+or A3 (one month per page, large day boxes for handwriting). The user picks year and month, an
 optional custom title, a background photo, day-box opacity, a colour scheme and a font
 pairing; sees a live preview; and exports a print-ready PDF — either the single chosen month
 or all twelve months of the chosen year.
@@ -23,9 +23,12 @@ holidays, Swedish UI strings.
 ### 1.2 In scope
 
 - Live in-browser preview of the calendar page, updating immediately on every control change.
-- Server-side PDF export at exactly 297 × 210 mm per page, backgrounds printed, fonts embedded.
+- Server-side PDF export at exactly 297 × 210 mm (A4) or 420 × 297 mm (A3) per page,
+  backgrounds printed, fonts embedded.
 - Single-month export and whole-year (12-page) export.
 - Six colour schemes, four font pairings, opacity 30–100 %, optional Swedish holidays.
+- Paper size A4 (default) or A3. A3 is the A4 layout scaled proportionally at print time —
+  same composition, same relative type size, no re-layout.
 - User-supplied background photo, held in the browser and uploaded per export request.
 - Zoom (100–400 %) and pan of that photo, dragged directly in the preview, with the exported
   PDF reproducing the preview exactly (§4.9, §5.2, §6.9).
@@ -39,7 +42,9 @@ holidays, Swedish UI strings.
   centred, which is the exact behaviour the service had before pan/zoom existed. Pan and zoom
   themselves are **in scope** (§1.2).
 - Any persistence: no accounts, no image storage, no database, no session state.
-- Any locale other than Swedish; any page size other than A4 landscape.
+- Any locale other than Swedish; any paper size other than A4 or A3 landscape; any portrait
+  orientation; any A3-specific layout — A3 is the A4 page scaled, and a differing composition
+  is out of scope.
 - Multi-month-per-page layouts, week/day views, event data, iCal import.
 - Server-side image downscaling — see §5.5 for the reasoning and the tradeoff.
 - Rate limiting beyond the render concurrency semaphore (deploy behind a reverse proxy).
@@ -126,6 +131,7 @@ renderer and no duplicated geometry anywhere.
 │   │   │   ├── view.ts                        buildCalendarView()
 │   │   │   ├── css.ts                         rgba()/alpha()/imageCss() helpers
 │   │   │   ├── options.ts                     defaults + parseCalendarOptions()
+│   │   │   ├── paper.ts                       paper sizes and the A3 scale factor
 │   │   │   └── *.test.ts                      co-located unit tests
 │   │   ├── components/                        ── LAYER 2
 │   │   │   ├── CalendarPage.svelte            THE calendar page
@@ -209,10 +215,10 @@ click "Exportera PDF" / "Exportera hela året"
                    where bodies[i] = render(CalendarPage, { props: { options, imageCss } }).body
              e. page.setRequestInterception(true); page.on('request', …)   (§7.1, §7.4)
              f. page.setContent(html, { waitUntil: 'load' })
-             g. page.pdf({ width:'297mm', height:'210mm', printBackground:true, ... })
+             g. page.pdf({ width, height, scale, printBackground:true, ... })    (§4.11)
              h. finally page.close(); semaphore.release()
         7. 200 application/pdf
-             Content-Disposition: attachment; filename="calgen-2026-09.pdf"
+             Content-Disposition: attachment; filename="calgen-2026-09.pdf"    (`calgen-2026-09-a3.pdf` for A3)
   → export.ts: response.blob() → object URL → <a download> click → revoke
 ```
 
@@ -239,6 +245,9 @@ document with twelve page sections, not twelve PDFs merged.
    `border-radius`. The app's `PreviewStage.svelte` adds the centring transform, the 8 px
    radius and the drop shadow; the print template adds the page break. This is what makes the
    same component correct in both contexts.
+   297 × 210 mm is the layout page, not the paper. A3 is produced by `page.pdf({ scale })`
+   (§7.5); `CalendarPage.svelte` renders identically for both paper sizes and never reads
+   `options.paperSize`.
 4. **Only `src/lib/server/pdf/puppeteer-browser.ts` imports `puppeteer-core`.** Everything else
    talks to the `BrowserLike`/`PageLike` interfaces in `src/lib/server/pdf/types.ts`.
 5. **Layer 1 imports nothing** outside `src/lib/calendar/`. No `Date` object arithmetic (§4.2).
@@ -279,6 +288,8 @@ export interface CalendarOptions {
 	imageX: number;
 	/** Vertical focal point of the photo, in `background-position` percent. Finite, 0–100. */
 	imageY: number;
+	/** Paper size. `'A4'` (default) or `'A3'`; A3 is the same layout scaled (§4.11). */
+	paperSize: PaperSizeId;
 }
 
 export const DEFAULT_OPTIONS: CalendarOptions = {
@@ -291,7 +302,8 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 	title: '',
 	imageZoom: 1,
 	imageX: 50,
-	imageY: 50
+	imageY: 50,
+	paperSize: 'A4'
 };
 ```
 
@@ -300,13 +312,13 @@ chosen; there is no `null` state and no optionality to branch on in the UI. They
 background layer's geometry, which the page emits unconditionally (§5.2) — with
 `background-image:none` the values are simply invisible.
 
-On the wire, though, the three fields are **optional**: `parseCalendarOptions` (§3.3) defaults
-each one from `DEFAULT_OPTIONS` (`imageZoom: 1`, `imageX: 50`, `imageY: 50` — plain `cover`/
-`center`) when its key is absent from the payload. This is a backward-compatibility carve-out
-for the public API: a pre-feature caller's request has no reason to know about these fields,
-and omitting them must keep producing the pre-feature rendering rather than a `400`. A field
-that is present, `null` included, is still validated exactly as below — only a genuinely
-missing key defaults.
+On the wire, though, four fields are **optional**: `parseCalendarOptions` (§3.3) defaults each
+one from `DEFAULT_OPTIONS` (`imageZoom: 1`, `imageX: 50`, `imageY: 50` — plain `cover`/
+`center`; `paperSize: 'A4'`) when its key is absent from the payload. This is a
+backward-compatibility carve-out for the public API: a pre-feature caller's request has no
+reason to know about these fields, and omitting them must keep producing the pre-feature
+rendering rather than a `400`. A field that is present, `null` included, is still validated
+exactly as below — only a genuinely missing key defaults.
 
 `imageX` / `imageY` carry exactly CSS `background-position` percentage semantics, generalised
 to zoom (§4.9): `0` aligns the image's left/top edge with the page's, `50` centres it, `100`
@@ -347,15 +359,17 @@ pure-logic layer never sees binary data.
 | `imageZoom`          | absent → defaults to `1`; else `Number.isFinite`, `1 ≤ imageZoom ≤ 4`  | `invalid_image_zoom`    |
 | `imageX`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageX ≤ 100`  | `invalid_image_x`       |
 | `imageY`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageY ≤ 100`  | `invalid_image_y`       |
+| `paperSize`          | absent → defaults to `'A4'`; else `'A4'` or `'A3'`                     | `invalid_paper_size`    |
 | `scope`              | `'month'` or `'year'`                                                  | `invalid_scope`         |
 
-`imageZoom`/`imageX`/`imageY` are the only **optional** fields: a missing key defaults from
-`DEFAULT_OPTIONS` (§3.1) instead of failing. Optionality is keyed on the key being absent
-(`o.imageZoom === undefined`), not on the value being falsy or nullish — `imageZoom: null` is
-**present** and fails `invalid_image_zoom` exactly like `imageZoom: '2'` would. This keeps the
-public API backward compatible: a request built before this feature existed, which never had a
-reason to send these fields, still renders — with the pre-feature `cover`/`center` geometry —
-instead of getting a `400`. Every other field remains required with no default.
+`imageZoom`/`imageX`/`imageY`/`paperSize` are the only **optional** fields: a missing key
+defaults from `DEFAULT_OPTIONS` (§3.1) instead of failing. Optionality is keyed on the key
+being absent (`o.imageZoom === undefined`), not on the value being falsy or nullish —
+`imageZoom: null` is **present** and fails `invalid_image_zoom` exactly like `imageZoom: '2'`
+would; likewise `paperSize: null` fails `invalid_paper_size`. This keeps the public API
+backward compatible: a request built before this feature existed, which never had a reason to
+send these fields, still renders — with the pre-feature `cover`/`center` geometry and A4 paper
+— instead of getting a `400`. Every other field remains required with no default.
 
 The three image fields are the only **non-integer** numbers in the payload — a drag produces
 fractions — so they are checked with `Number.isFinite`, not `Number.isInteger`. `NaN`,
@@ -399,19 +413,19 @@ All API errors are `application/json` with the shape:
 Swedish toast via the table in `src/lib/client/errors.ts` (§6.6). Unknown codes fall back to
 `"Något gick fel. Försök igen."`.
 
-| Code                                                                                                                                                                                                                                    | Status |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `unsupported_media_type` (request not multipart)                                                                                                                                                                                        | 415    |
-| `missing_options`                                                                                                                                                                                                                       | 400    |
-| `invalid_json`                                                                                                                                                                                                                          | 400    |
-| `invalid_options` (payload is not an object)                                                                                                                                                                                            | 400    |
-| `invalid_year` / `invalid_month` / `invalid_scheme` / `invalid_font` / `invalid_opacity` / `invalid_show_holidays` / `invalid_title` / `invalid_image_zoom` / `invalid_image_x` / `invalid_image_y` / `invalid_scope` / `invalid_image` | 400    |
-| `unsupported_image_type`                                                                                                                                                                                                                | 415    |
-| `image_too_large`                                                                                                                                                                                                                       | 413    |
-| `render_timeout`                                                                                                                                                                                                                        | 504    |
-| `renderer_busy` (queue wait exceeded)                                                                                                                                                                                                   | 503    |
-| `renderer_unavailable` (browser launch failed)                                                                                                                                                                                          | 503    |
-| `internal_error`                                                                                                                                                                                                                        | 500    |
+| Code                                                                                                                                                                                                                                                           | Status |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `unsupported_media_type` (request not multipart)                                                                                                                                                                                                               | 415    |
+| `missing_options`                                                                                                                                                                                                                                              | 400    |
+| `invalid_json`                                                                                                                                                                                                                                                 | 400    |
+| `invalid_options` (payload is not an object)                                                                                                                                                                                                                   | 400    |
+| `invalid_year` / `invalid_month` / `invalid_scheme` / `invalid_font` / `invalid_opacity` / `invalid_show_holidays` / `invalid_title` / `invalid_image_zoom` / `invalid_image_x` / `invalid_image_y` / `invalid_paper_size` / `invalid_scope` / `invalid_image` | 400    |
+| `unsupported_image_type`                                                                                                                                                                                                                                       | 415    |
+| `image_too_large`                                                                                                                                                                                                                                              | 413    |
+| `render_timeout`                                                                                                                                                                                                                                               | 504    |
+| `renderer_busy` (queue wait exceeded)                                                                                                                                                                                                                          | 503    |
+| `renderer_unavailable` (browser launch failed)                                                                                                                                                                                                                 | 503    |
+| `internal_error`                                                                                                                                                                                                                                               | 500    |
 
 Never leak stack traces or `CHROMIUM_PATH` in the response body; log them instead.
 
@@ -960,14 +974,17 @@ export function pdfFilename(o: ExportRequest): string;
 
 `yearPages` returns `Array.from({length:12}, (_, month) => stripScope({ ...o, month, title: '' }))`.
 
-`pdfFilename`: `scope==='month'` → `calgen-${year}-${String(month+1).padStart(2,'0')}.pdf`;
-`scope==='year'` → `calgen-${year}.pdf`.
+`pdfFilename`: `scope==='month'` → `calgen-${year}-${String(month+1).padStart(2,'0')}.pdf`,
+with `-a3` appended before `.pdf` when `paperSize === 'A3'`; `scope==='year'` →
+`calgen-${year}.pdf`, same `-a3` suffix rule. A4 filenames are unchanged.
 
 **Tests**: valid object round-trips; each invalid field yields its documented code; `null`,
 `[]`, `'string'` inputs yield `invalid_options`; unknown extra keys are ignored (not an error);
 `yearPages({year:2026,month:8,title:'Vår trädgård',...})` → 12 items, months 0..11, every
 `title === ''`; `pdfFilename({year:2026,month:8,scope:'month'}) === 'calgen-2026-09.pdf'`;
 `pdfFilename({year:2026,month:8,scope:'year'}) === 'calgen-2026.pdf'`;
+`pdfFilename({year:2026,month:8,scope:'month',paperSize:'A3'}) === 'calgen-2026-09-a3.pdf'`;
+`pdfFilename({year:2026,scope:'year',paperSize:'A3'}) === 'calgen-2026-a3.pdf'`;
 `stripScope` output has no `scope` key (`'scope' in stripScope(req) === false`).
 
 For the image transform specifically: `imageZoom: 1` and `imageZoom: 4` are accepted and
@@ -979,6 +996,57 @@ unchanged — the parser must not round or clamp them, since rounding is the ren
 the twelve pages. An options object with all three keys omitted parses `ok: true` with
 `imageZoom: 1`, `imageX: 50`, `imageY: 50` (§3.1's defaults); `imageZoom: null` is present, not
 absent, so it fails `invalid_image_zoom` (and likewise `imageX: null` / `imageY: null`).
+
+### 4.11 `paper.ts` — paper sizes and the A3 scale factor
+
+```ts
+export type PaperSizeId = 'A4' | 'A3';
+
+export interface PaperSize {
+	id: PaperSizeId;
+	name: string;
+	widthMm: number;
+	heightMm: number;
+	/** Multiplied into `page.pdf({ scale })`; A4's is the literal `1`. */
+	scale: number;
+}
+
+export const PAPER_SIZES: readonly PaperSize[];
+/** @throws when the id is not one of the two. */
+export function getPaperSize(id: PaperSizeId): PaperSize;
+```
+
+| id   | name | mm        | scale   |
+| ---- | ---- | --------- | ------- |
+| `A4` | A4   | 297 × 210 | `1`     |
+| `A3` | A3   | 420 × 297 | `1.414` |
+
+A3 is not a re-layout: `CalendarPage.svelte` always renders the 297 × 210 mm layout page
+(§2.5.3). `print-html.ts`'s `@page` rule is set to the requested paper's own size (§7.4), and
+`page.pdf({ scale })` (§7.5) then scales the whole rendering — `.calgen-page` included — by that
+factor, so every dimension grows by one factor in vector space — same composition, same
+relative type size.
+
+**Why `scale = 1.414`, rounded down, and not `Math.SQRT2` or the exact ratio.** The scaled
+content is `297 * scale` mm wide and `210 * scale` mm tall, and it has to stay strictly inside
+the nominal 420 × 297 mm sheet on both axes. The obvious candidates both fail:
+
+- `Math.SQRT2` (`1.41421356…`): `297 * 1.41421356 = 420.021` mm — wider than the 420 mm sheet:
+  negative slack, horizontal overflow onto a plausible second page.
+- `420 / 297 = 1.414141…` lands the content width on exactly `420.000` mm: float equality at
+  the failure boundary, one rounding error away from overflow.
+
+`1.414`, truncated rather than rounded to the nearest thousandth, gives printed content of
+419.958 × 296.940 mm on the 420 × 297 mm sheet — both axes strictly inside it, with slack under
+0.1 mm on both. `297 * 1.414 = 419.958 < 420` and `210 * 1.414 = 296.94 < 297` strictly — the
+property `paper.test.ts` asserts directly. This matches real Chromium output (§7.5): MediaBox
+1191.12 × 841.92 pt, `pageCount` 1 and 12, and the content-stream scale ratio (§7.5's "Root
+cause and fix" note) confirms the drawing commands themselves are scaled, not just the
+MediaBox. The margin this leaves at the right and foot is covered by `pageBg` end-to-end, so A3
+has no unpainted edge either (§7.4).
+
+`A4.scale` is the literal `1` so `PDF_OPTIONS` for an A4 job is object-identical to the
+pre-A3 options — the mechanism by which A4 output is provably unchanged.
 
 ---
 
@@ -1024,6 +1092,8 @@ width:297mm;height:210mm;overflow:hidden;position:relative;box-sizing:border-box
 display:grid;grid-template-rows:auto 1fr;gap:5mm;padding:30mm 10mm 10mm;
 background:{view.scheme.bg};color:{view.scheme.text};font-family:{view.font.body}
 ```
+
+This is the layout page and is identical for A4 and A3.
 
 Background photo layer (first child, always rendered):
 
@@ -1296,14 +1366,16 @@ const { body, head } = render(CalendarPage, { props: { options: FIXTURE } });
 ```
 
 Assertions for `FIXTURE = { year:2026, month:8, schemeId:'organic', fontId:'organic',
-opacity:88, showHolidays:true, title:'', imageZoom:1, imageX:50, imageY:50 }`:
+opacity:88, showHolidays:true, title:'', imageZoom:1, imageX:50, imageY:50, paperSize:'A4' }`:
 
 1. `head === ''` (no `<svelte:head>`; if this ever becomes non-empty the print template must
    start forwarding it — see §7.4).
 2. **Primary style guard:** `readFileSync('src/lib/components/CalendarPage.svelte','utf8')`
    does **not** match `/<style[\s>]/`. Secondary: `body` does not contain `class="svelte-`
    (rule §2.5.1 — the secondary check alone misses a `:global` style block).
-3. `body` contains `width:297mm;height:210mm`.
+3. `body` sizes the layout page at exactly `width:297mm;height:210mm`. Rendering the same
+   options with `paperSize:'A3'` produces a `body` byte-identical to `paperSize:'A4'`:
+   `CalendarPage.svelte` never reads `options.paperSize` (§2.5.3, §4.11).
 4. `body` contains `>September 2026<` (the resolved title).
 5. `body` contains all seven day names `Måndag`…`Söndag`.
 6. `body` contains `v.36`, `v.37`, `v.38`, `v.39`, `v.40` and does **not** contain `v.41`.
@@ -1505,6 +1577,32 @@ border:2px solid {sel ? '#c67139' : '#dcd3c4'}` containing
 and `<span style="font-size:13px;color:#645c50;font-family:{f.body}">{f.name}</span>`.
 `aria-pressed={selected}`.
 
+**Pappersstorlek** — the last section, placed after **Typsnitt** because it is the only control
+that does not change the preview (§6.4):
+
+```
+<section>
+  <h2>Pappersstorlek</h2>
+  <div class="paper-list">
+    {#each PAPER_SIZES as paper (paper.id)}
+      <button type="button" class="paper" aria-pressed={app.paperSize === paper.id}
+              style="border-color:{border(app.paperSize === paper.id)}"
+              onclick={() => (app.paperSize = paper.id)}>
+        <span>{paper.name}</span>
+      </button>
+    {/each}
+  </div>
+  <p class="hint">Samma layout i båda storlekarna — A3 skalas proportionellt.</p>
+</section>
+```
+
+`.paper-list` reuses the **Färgskala** grid's tokens (`display:grid;
+grid-template-columns:1fr 1fr;gap:8px`); `.paper` reuses the **Typsnitt** button's
+(`border:2px solid`, `border-radius:16px`, `background:#f9f4ed`). Each button shows only
+`paper.name` — no dimension copy (product-owner decision, §14.4). `aria-pressed` and the shared
+`border()` helper match the scheme and font groups exactly. Focus ring: the pre-existing global
+`button:focus-visible` rule in `app.css`, like every other button in the sidebar.
+
 ### 6.4 Preview stage (`PreviewStage.svelte`)
 
 ```
@@ -1531,6 +1629,12 @@ scale = Math.min(frame.clientWidth / (297 * MM), frame.clientHeight / (210 * MM)
 
 (= `min(w / 1122.52, h / 793.70)`. The README's rounded 1122/794 is the same number to three
 significant figures; use the mm-derived form.)
+
+The fit formula stays A4-derived for both paper sizes. A4 is 297:210 = 1.414286:1, A3 is
+420:297 = 1.414141:1 — 0.010 % apart, under one device pixel at any realistic preview size.
+`PreviewStage.svelte` does not change for A3 (§4.11): the preview always shows the 297 × 210 mm
+layout page, and a hint next to the paper-size control (§6.3) explains that the preview does
+not change.
 
 Recomputed by a `ResizeObserver` on `frame` inside `$effect`, plus one deferred recompute
 (`setTimeout(…, 300)`) after mount so web-font loading cannot leave a stale scale. The
@@ -1748,6 +1852,8 @@ does not live inside `PreviewStage.svelte`.
 /** The printed page, in CSS pixels at 96 dpi: 297 × 210 mm. */
 export const PAGE_WIDTH_PX: number; // 297 * 96 / 25.4 = 1122.519685…
 export const PAGE_HEIGHT_PX: number; // 210 * 96 / 25.4 =  793.700787…
+// These describe the layout page and are independent of paperSize; the A3 scale is applied
+// outside the document (§4.11, §7.5), not in this module.
 
 export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
@@ -2112,6 +2218,8 @@ export function buildPrintHtml(input: {
 	hasImage: boolean;
 	/** Scheme `bg`; paints the ~0.24 mm sliver Chromium leaves at the page foot. */
 	pageBg: string;
+	/** The physical sheet, for `@page`. Only `widthMm`/`heightMm` of `PaperSize` (§4.11). */
+	paper: Pick<PaperSize, 'widthMm' | 'heightMm'>;
 }): string;
 ```
 
@@ -2127,7 +2235,7 @@ Template:
 			{fontCss}
 		</style>
 		<style>
-			@page { size: 297mm 210mm; margin: 0 }
+			@page { size: {paper.widthMm}mm {paper.heightMm}mm; margin: 0 }
 			html, body { margin:0; padding:0; background:{pageBg};
 			             -webkit-print-color-adjust: exact; print-color-adjust: exact }
 			* { box-sizing: border-box }
@@ -2158,17 +2266,38 @@ Notes:
   a 297 × 210 mm request (§7.5). Content is not clipped, but a ~0.24 mm strip at the foot of
   every page falls outside the 210 mm page element. Painting the root with the scheme
   background makes that strip the scheme colour instead of white. The page element MUST NOT be
-  enlarged to cover it — a page taller than 210 mm risks overflowing into a second printed
-  page, which is a far worse failure. All pages in one export share one scheme, so a single
-  `pageBg` is always correct.
+  enlarged to cover it — a page taller than the layout page risks overflowing into a second
+  printed page, which is a far worse failure. All pages in one export share one scheme, so a
+  single `pageBg` is always correct. A3 has no such unpainted edge at all: its `@page` box is
+  the full 420 × 297 mm sheet (§4.11), so `page.pdf({ scale })` (§7.5) scales that whole box —
+  background included — well past the sheet's own dimensions, and Chromium crops the excess
+  instead of centring it. The visible sheet therefore sits entirely inside the scaled,
+  background-painted page box: `.calgen-page`'s scaled content plus the same background out to
+  every edge, with nothing left unpainted. Measured directly on a rasterised A3 export (§13
+  step 13): all four edge rows and columns are the scheme colour, not white.
+- **`@page` MUST match the requested paper, not the 297 × 210 mm layout page.** `buildPrintHtml`
+  takes `paper` (§4.11's `PaperSize`, `widthMm`/`heightMm` only) and emits `@page { size:
+{paper.widthMm}mm {paper.heightMm}mm }`. This is the fix for the original A3 defect: the
+  `@page` size is the CSS page box Chromium lays print content out into, and Chromium _centres_
+  that box on the sheet `page.pdf({ width, height })` requests — it does not stretch it. With
+  `@page` fixed at 297 × 210 mm regardless of paper, an A3 export laid the unscaled A4 page out
+  and centred it, unscaled, on the 420 × 297 mm sheet; `page.pdf({ scale })` was never applied,
+  because there was nothing left for it to scale into. Passing the real paper into `@page`
+  makes Chromium lay out (and `scale`, per §7.5) a page box matching the sheet, so the 297 × 210
+  mm content fills it. `.calgen-page` itself stays at `width:297mm;height:210mm` for every
+  paper size — it is the layout page, unrelated to the sheet — and `renderer.ts` resolves
+  `getPaperSize(job.pages[0].paperSize)` once and passes it to both `buildPrintHtml` and
+  `page.pdf`, so the two always agree.
 - The whole document is built as one string; there is no templating dependency. `pages[i]`
   is already-escaped Svelte output. `fontCss`, `pageBg` and `hasImage` are server-constructed.
 
 **Tests** (`print-html.test.ts`): output starts with `<!doctype html>`; contains
-`@page { size: 297mm 210mm` (whitespace-insensitive assertion); contains exactly `n`
-occurrences of `class="calgen-page"` for `n ∈ {1, 12}`; contains `--calgen-bg` only when an
-image is supplied; the supplied font CSS appears verbatim; `html, body` carry the supplied
-`pageBg` (e.g. `#2e2b25` for `natt`); the page bodies appear in order.
+`@page { size: 297mm 210mm` for the A4 `paper`, and `@page { size: 420mm 297mm` for the A3
+`paper` (whitespace-insensitive assertions); `.calgen-page { width: 297mm; height: 210mm;`
+appears for both paper sizes; contains exactly `n` occurrences of `class="calgen-page"` for
+`n ∈ {1, 12}`; contains `--calgen-bg` only when an image is supplied; the supplied font CSS
+appears verbatim; `html, body` carry the supplied `pageBg` (e.g. `#2e2b25` for `natt`); the
+page bodies appear in order.
 
 ### 7.5 Chromium driver — `puppeteer-core`, not `playwright-core`
 
@@ -2256,15 +2385,15 @@ the graceful shutdown this spec requires.
 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`. If none exists, throw
 `RenderError('renderer_unavailable')` with the searched list in the log (not the response).
 
-`page.pdf` options:
+`page.pdf` options, now paper-dependent (`paper` resolved via `getPaperSize`, §4.11):
 
 ```ts
 {
-  width: '297mm', height: '210mm',
+  width: `${paper.widthMm}mm`, height: `${paper.heightMm}mm`,
   printBackground: true,
   preferCSSPageSize: false,          // explicit width/height wins; deterministic
   margin: { top: '0', right: '0', bottom: '0', left: '0' },
-  scale: 1,
+  scale: paper.scale,
   landscape: false,                  // irrelevant when width/height are explicit; keep false
   displayHeaderFooter: false,
   tagged: false,                     // puppeteer defaults to true; we do not need PDF/UA tags
@@ -2274,17 +2403,51 @@ the graceful shutdown this spec requires.
 }
 ```
 
+`scale` is clamped by puppeteer to `[0.1, 2]`; `A4.scale` is the literal `1` and `A3.scale` is
+`1.414`, both comfortably inside the range.
+
 `page.setContent(html, { waitUntil: 'load', timeout: cfg.pdfTimeoutMs })`. `'load'` (not
 `'networkidle0'`) — request interception (§7.2, §7.4) is registered before `setContent`, so the
 one request the page can issue (the background photo) is answered or aborted synchronously and
 `load` fires right after; `networkidle0` would still add a fixed 500 ms wait per render on top
 of that for no benefit.
 
-**Measured output geometry.** With these options Chromium emits `MediaBox [0 0 841.92 595.92]`
-pt — 297.02 × 210.24 mm, because the page box is quantised to 1/100 inch. Content is not
-clipped; the excess shows as a ~0.24 mm unpainted strip at the foot of each page, handled by
-the root background in §7.4. `preferCSSPageSize: true` was measured as _worse_: it yields
+**Measured output geometry (A4).** With these options Chromium emits `MediaBox [0 0 841.92
+595.92]` pt — 297.02 × 210.24 mm, because the page box is quantised to 1/100 inch. Content is
+not clipped; the excess shows as a ~0.24 mm unpainted strip at the foot of each page, handled
+by the root background in §7.4. `preferCSSPageSize: true` was measured as _worse_: it yields
 209.9 mm, i.e. a page box smaller than the 210 mm content, so `false` is correct.
+
+**Measured output geometry (A3).** Measured against real Chromium (Google Chrome 151,
+`renderer.integration.test.ts`): a single-month A3 job emits `MediaBox [0 0 1191.12
+841.91998]` pt — 420.20 × 297.01 mm — at `pageCount === 1`; a whole-year A3 job stays at
+`pageCount === 12`, with no trailing blank page. The MediaBox and page counts match the
+prediction: no second page, no factor correction needed.
+
+**Root cause and fix — `@page` must track the requested paper (§7.4).** The first
+implementation left `buildPrintHtml`'s `@page` rule fixed at `297mm 210mm` regardless of paper,
+on the assumption that `page.pdf({ scale })` alone would enlarge the rendering onto the larger
+sheet. Measured against real Chromium, that assumption was wrong: `@page` sets the CSS page box
+Chromium lays print content out into, and `page.pdf({ width, height })` **centres** that box on
+the requested sheet — it does not stretch it. With `@page` fixed at 297 × 210 mm, an A3 export
+laid out the unscaled A4 page and centred it, untouched, on the 420 × 297 mm sheet, leaving a
+large blank margin on the right and at the foot. (This was first misdiagnosed as a Chromium
+day-grid pagination quirk — a diagnosis this section used to carry — but the same centring
+reproduces with a placeholder page, ruling the grid out.) `buildPrintHtml`
+now takes `paper` (§7.4) and emits `@page { size: {paper.widthMm}mm {paper.heightMm}mm }`;
+`renderer.ts` resolves `getPaperSize(job.pages[0].paperSize)` once and passes the identical
+value to both `buildPrintHtml` and `page.pdf`, so the CSS page box Chromium lays out and the
+`scale` applied to it always agree, and the 297 × 210 mm content fills the requested sheet.
+
+Verified two ways: a manual `natt` A3 export, rasterised with `sips`, shows the calendar filling
+the 420 × 297 mm sheet edge-to-edge with no blank margin (§13 step 13). And
+`renderer.integration.test.ts` decodes each PDF's first content stream (`contentStreams`,
+`tests/pdf-utils.ts`) and reads Chromium's leading `q <sx> 0 0 <sy> <tx> <ty> cm` transform —
+the operator that scales every subsequent drawing command. Measured: A4's `|sx|` is `3.125`;
+A3's is `4.4187503` — a ratio of `1.41400010`, matching `paper.ts`'s `A3_SCALE` (`1.414`) to
+five decimal places. This is the regression guard: it fails if `@page` ever stops tracking the
+paper, because `MediaBox`/`pageCount` alone cannot detect an unscaled render centred on a
+correctly-sized sheet.
 
 `page.emulateMedia` is **not** called: `page.pdf()` already uses print media, and the layout is
 media-agnostic.
@@ -2859,8 +3022,25 @@ Assertions:
    `/BaseFont` appears would fail for a correct PDF.
 5. `natt` scheme + `klassisk` fonts renders 1 page (exercises a second font pairing's
    `@font-face` block).
+6. A4 `MediaBox` ≈ 841.92 × 595.92 pt (±0.5 pt), added to the single-month assertion in (1).
+7. A3 single month: `pageCount(bytes) === 1` and `MediaBox` matches the value measured against
+   real Chromium (§4.11, §7.5) — this is the assertion that would catch the scale factor
+   pushing content onto a second page.
+8. A3 whole year: `pageCount(bytes) === 12`, no trailing blank page.
+9. A3 with `tests/fixtures/tiny.jpg`: 1 page and the image is embedded (`hasImageXObject`);
+   `FontFile2` and `/[A-Z]{6}\+Caprasimo/` are still present in A3 output — scaling must not
+   drop the embedded font subset.
+10. **Content-scale regression guard.** Assertions (1)-(9) read only the page container
+    (`MediaBox`) and the page count, neither of which can tell an unscaled A4 render centred on
+    a correctly-sized A3 sheet from a genuinely scaled one — the defect this feature originally
+    shipped with (§7.5's "Root cause and fix" note). A tenth
+    assertion decodes each PDF's first content stream (`contentStreams`, `tests/pdf-utils.ts`)
+    and reads Chromium's leading `q <sx> 0 0 <sy> <tx> <ty> cm` transform, which scales every
+    subsequent drawing command: `|sx|` for A3 divided by `|sx|` for A4 must equal `A3_SCALE`
+    (`1.414`, within `toBeCloseTo`'s 3-digit tolerance) — proving the drawing commands
+    themselves grew by the paper factor, not just the MediaBox.
 
-Page counting helper (`tests/pdf-utils.ts`):
+Page counting and geometry helpers (`tests/pdf-utils.ts`):
 
 ```ts
 /** Counts `/Type /Page` objects, excluding `/Type /Pages`. */
@@ -2868,12 +3048,22 @@ export function pageCount(bytes: Uint8Array): number {
 	const s = Buffer.from(bytes).toString('latin1');
 	return (s.match(/\/Type\s*\/Page(?![s])/g) ?? []).length;
 }
+
+export const PT_PER_MM = 72 / 25.4;
+
+/** First `/MediaBox [a b c d]` match, as a width/height in points. Same heuristic caveat. */
+export function mediaBox(bytes: Uint8Array): { widthPt: number; heightPt: number } | null;
+
+/** Decodes every FlateDecode `stream…endstream` block to text, in document order. Used to read
+ *  Chromium's content-stream `cm` transform for the (10) content-scale regression guard. */
+export function contentStreams(bytes: Uint8Array): string[];
 ```
 
 Document the caveat: this is a heuristic that works because we never produce object streams
 with compressed cross-reference tables containing page dictionaries — Chromium's PDF writer
 emits uncompressed page objects. If it ever proves flaky, switch to counting `/Count N` in the
-page tree root.
+page tree root. `mediaBox` shares the same caveat: it reads the first match, which is
+sufficient because every page in one export shares one paper size.
 
 ### 12.5 HTTP — handler unit tests
 
@@ -2922,7 +3112,10 @@ string; unknown code falls back — the new `invalid_image_zoom` / `invalid_imag
 `src/lib/client/app-state.test.ts` additionally: `toOptions` carries the three transform fields
 and never `imageSize`; `setImage` and `clearImage` both reset the transform to `1 / 50 / 50` and
 clear `imageSize`; `measureImage` with an injected measurer fills `imageSize`; a rejecting
-measurer leaves `imageSize` null and does not throw out of the caller.
+measurer leaves `imageSize` null and does not throw out of the caller. `toOptions` also
+projects `paperSize`: `createAppState()` defaults it to `'A4'` (the `toEqual(DEFAULT_OPTIONS)`
+guard in `createAppState`'s own test forces this), and setting `app.paperSize = 'A3'` carries
+through to `toOptions(app).paperSize`.
 
 ### 12.7 What is deliberately not automated
 
@@ -2987,9 +3180,9 @@ entirely next-month cells, a custom title, an image.
 (+ tests), `hooks.server.ts` with security headers and the request log, `routes/healthz`
 (+ test).
 
-**Step 12 — PDF service, faked.** `pdf/types.ts`, `print-html.test.ts` → `print-html.ts`,
-`renderer.test.ts` (all cases in §7.6) → `renderer.ts`, `fonts.ts` (`loadPrintFontCss` +
-path-resolver test).
+**Step 12 — PDF service, faked.** `paper.test.ts` → `paper.ts` (§4.11), then `pdf/types.ts`,
+`print-html.test.ts` → `print-html.ts`, `renderer.test.ts` (all cases in §7.6) → `renderer.ts`,
+`fonts.ts` (`loadPrintFontCss` + path-resolver test).
 
 **Step 13 — Real browser.** `puppeteer-browser.ts`, `instance.ts`, the `sveltekit:shutdown`
 wiring, `renderer.integration.test.ts`.
@@ -2997,7 +3190,8 @@ _Verify:_ `CHROMIUM_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google 
 pnpm test:integration` passes on the Mac; open the produced PDF and check the page is A4
 landscape with no white margin — specifically **look at the bottom edge**: the ~0.24 mm strip
 outside the 210 mm page element must be the scheme background colour, not white (§7.4). Check
-it on `natt`, where any leak is obvious.
+it on `natt`, where any leak is obvious. Then export A3, confirm 420 × 297 mm, one page, right
+and bottom edges scheme colour not white — check on `natt`.
 
 **Step 14 — HTTP endpoint.** `routes/api/pdf/server.test.ts` → `+server.ts`, including
 `sniffImageType` and its tests.
@@ -3102,6 +3296,17 @@ Pan/zoom copy (§1.2), likewise verbatim:
 | `Återställ bildens läge`                                             | sidebar reset button (§6.3)                  |
 | `Flytta bakgrundsbilden. Dra med musen eller använd piltangenterna.` | `aria-label` of the preview surface (§6.4.1) |
 
+Paper-size copy (§4.11, §6.3), approved as written — the product owner asked for the dimension
+strings (`297 × 210 mm`, `420 × 297 mm`) to be dropped from the buttons, so only the name and
+the hint remain:
+
+| String                                                        | Where                                       |
+| ------------------------------------------------------------- | ------------------------------------------- |
+| `Pappersstorlek`                                              | sidebar section heading (§6.3)              |
+| `A4`                                                          | paper-size button label (§6.3)              |
+| `A3`                                                          | paper-size button label (§6.3)              |
+| `Samma layout i båda storlekarna — A3 skalas proportionellt.` | sidebar hint under the paper buttons (§6.3) |
+
 ### 14.5 The prototype's `gap:-4px`
 
 `<span style="display:flex;gap:-4px">` in the scheme swatches is invalid CSS and is ignored by
@@ -3129,19 +3334,21 @@ Node on this machine is v24.18.0, pnpm 11.17.0.
 
 ### 14.8 Risks
 
-| Risk                                                                                                                                                                               | Likelihood         | Mitigation                                                                                                                                                                                                                     |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Year PDF produces 13 pages (trailing blank) or 24 (overflow)                                                                                                                       | medium             | `:last-child{break-after:auto}`; `overflow:hidden` on each page; the integration test asserts exactly 12                                                                                                                       |
-| Chromium version drift breaks CDP calls                                                                                                                                            | low                | `puppeteer-core` speaks plain CDP; the render path uses `setContent`/`pdf` plus `Fetch.enable`/`fulfillRequest`/`failRequest` underneath request interception — all stable, long-lived commands. Pin the Debian base image tag |
-| Sandbox blocked by the container platform                                                                                                                                          | medium             | `CHROMIUM_NO_SANDBOX` escape hatch, documented with its cost                                                                                                                                                                   |
-| 20 MB image → ~27 MB base64 + ~80 MB decoded RGBA in Chromium, per render                                                                                                          | medium             | `MAX_UPLOAD_BYTES` 20 MiB × `PDF_CONCURRENCY` 2 ⇒ container memory floor **1.5 GB** and `NODE_OPTIONS=--max-old-space-size=768` (§10), so Node throws a heap error instead of being OOM-killed. §14.10 is the fallback         |
-| Background photo silently missing from the PDF above ~1.5 MB (a `data:` URL over Chromium's 2 MiB `url::kMaxURLChars` limit is dropped with no error, `hasImage:true` in the logs) | was high, now none | Photo served under a fixed URL via request interception (§7.1, §7.4, §7.5) instead of a `data:` URL; integration test renders with an image whose base64 form exceeds the limit and asserts an image XObject is present        |
-| Signal handling hijacked (puppeteer `SIGINT` → `process.exit(130)`)                                                                                                                | high if defaulted  | `handleSIGINT/SIGTERM/SIGHUP: false` at launch (§7.5); `docker stop` drain verified in step 16                                                                                                                                 |
-| CSP silently absent because config went into `svelte.config.js`                                                                                                                    | high if defaulted  | §2.5.6 forbids the file; step 1 verifies the `content-security-policy` response header                                                                                                                                         |
-| `POST /api/pdf` returns 403 behind a proxy                                                                                                                                         | medium             | `ORIGIN` is required in production and `config.ts` refuses to start without it (§9)                                                                                                                                            |
-| Fonts not embedded (blank/fallback glyphs in PDF)                                                                                                                                  | low                | data-URI `@font-face` + `font-display:block` + `waitForFonts:true` + `--host-resolver-rules=MAP * ~NOTFOUND` + an integration assertion on `FontFile2`                                                                         |
-| Someone adds a `<style>` block to `CalendarPage.svelte`                                                                                                                            | medium             | Test asserts the SSR body contains no `class="svelte-`                                                                                                                                                                         |
-| Browser process leak under load                                                                                                                                                    | low                | Single shared browser, pages always closed in `finally`, `tini` reaps, semaphore bounds page count                                                                                                                             |
+| Risk                                                                                                                                                                               | Likelihood         | Mitigation                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Year PDF produces 13 pages (trailing blank) or 24 (overflow)                                                                                                                       | medium             | `:last-child{break-after:auto}`; `overflow:hidden` on each page; the integration test asserts exactly 12                                                                                                                                                            |
+| Chromium version drift breaks CDP calls                                                                                                                                            | low                | `puppeteer-core` speaks plain CDP; the render path uses `setContent`/`pdf` plus `Fetch.enable`/`fulfillRequest`/`failRequest` underneath request interception — all stable, long-lived commands. Pin the Debian base image tag                                      |
+| Sandbox blocked by the container platform                                                                                                                                          | medium             | `CHROMIUM_NO_SANDBOX` escape hatch, documented with its cost                                                                                                                                                                                                        |
+| 20 MB image → ~27 MB base64 + ~80 MB decoded RGBA in Chromium, per render                                                                                                          | medium             | `MAX_UPLOAD_BYTES` 20 MiB × `PDF_CONCURRENCY` 2 ⇒ container memory floor **1.5 GB** and `NODE_OPTIONS=--max-old-space-size=768` (§10), so Node throws a heap error instead of being OOM-killed. §14.10 is the fallback                                              |
+| Background photo silently missing from the PDF above ~1.5 MB (a `data:` URL over Chromium's 2 MiB `url::kMaxURLChars` limit is dropped with no error, `hasImage:true` in the logs) | was high, now none | Photo served under a fixed URL via request interception (§7.1, §7.4, §7.5) instead of a `data:` URL; integration test renders with an image whose base64 form exceeds the limit and asserts an image XObject is present                                             |
+| Signal handling hijacked (puppeteer `SIGINT` → `process.exit(130)`)                                                                                                                | high if defaulted  | `handleSIGINT/SIGTERM/SIGHUP: false` at launch (§7.5); `docker stop` drain verified in step 16                                                                                                                                                                      |
+| CSP silently absent because config went into `svelte.config.js`                                                                                                                    | high if defaulted  | §2.5.6 forbids the file; step 1 verifies the `content-security-policy` response header                                                                                                                                                                              |
+| `POST /api/pdf` returns 403 behind a proxy                                                                                                                                         | medium             | `ORIGIN` is required in production and `config.ts` refuses to start without it (§9)                                                                                                                                                                                 |
+| Fonts not embedded (blank/fallback glyphs in PDF)                                                                                                                                  | low                | data-URI `@font-face` + `font-display:block` + `waitForFonts:true` + `--host-resolver-rules=MAP * ~NOTFOUND` + an integration assertion on `FontFile2`                                                                                                              |
+| Someone adds a `<style>` block to `CalendarPage.svelte`                                                                                                                            | medium             | Test asserts the SSR body contains no `class="svelte-`                                                                                                                                                                                                              |
+| Browser process leak under load                                                                                                                                                    | low                | Single shared browser, pages always closed in `finally`, `tini` reaps, semaphore bounds page count                                                                                                                                                                  |
+| A3 scale rounding produces a trailing blank page                                                                                                                                   | low                | Factor rounded down (§4.11) so scaled content stays strictly inside the sheet; the 12-page integration assertion (§12.4) catches an overflow that would add one                                                                                                     |
+| A3 content is not enlarged for the real, fully-populated day grid — realised, not hypothetical                                                                                     | occurred, fixed    | Root cause was `print-html.ts`'s `@page` rule staying fixed at 297 × 210 mm instead of tracking the requested paper (§7.4/§7.5's "Root cause and fix" note); fixed by passing `paper` into `buildPrintHtml`, with a content-stream regression guard (§12.4 item 10) |
 
 ### 14.9 Product-owner decisions — all resolved
 
@@ -3161,6 +3368,13 @@ No open questions remain. For the record:
 7. **Pan and zoom of the background photo** → **in scope** (§1.2), zoom range 100–400 %, one
    transform shared by all twelve pages of a year export, dragged directly in the preview.
    **Crop remains out of scope** (§1.3). Pan/zoom copy approved as written (§14.4).
+8. **Paper size** → **A4/A3**, A4 default, A3 produced by proportional scaling with no
+   re-layout — `CalendarPage.svelte` is unchanged and never reads `options.paperSize` (§2.5.3,
+   §4.11). Filenames gain a `-a3` suffix; A4 filenames are unchanged. The scale factor is
+   `1.414`, rounded down (§4.11). Paper-size copy is approved as written, with the dimension
+   strings dropped from the buttons per the product owner (§14.4). `print-html.ts`'s
+   `@page` rule tracks the requested paper (§7.4), which is what makes the scaled content fill
+   the A3 sheet (§7.5's "Root cause and fix" note).
 
 ### 14.10 Deliberate simplifications (with their tradeoffs)
 

@@ -1,10 +1,11 @@
 # CalGen
 
-A stateless web service that generates printable Swedish wall-calendar PDFs: A4 landscape
-(297 × 210 mm), one month per page, day boxes big enough to write in.
+A stateless web service that generates printable Swedish wall-calendar PDFs: A4 or A3 landscape
+(297 × 210 mm / 420 × 297 mm), one month per page, day boxes big enough to write in.
 
 Pick a year and month, optionally a custom title, a background photo — which you can zoom and
-move to choose the crop — the day-box coverage, a colour scheme and a font pairing. The preview
+move to choose the crop — the day-box coverage, a colour scheme and a font pairing. Choose A4 or
+A3; A3 is the same layout scaled proportionally, and its file is named `…-a3.pdf`. The preview
 updates as you type. Export the chosen month, or all twelve months of the year as a single
 12-page PDF.
 

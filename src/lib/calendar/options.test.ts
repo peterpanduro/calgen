@@ -45,6 +45,17 @@ describe('parseCalendarOptions — accepted input', () => {
 		expect(result.ok && result.value.scope).toBe('year');
 	});
 
+	it('accepts A3 paper', () => {
+		const result = parse({ paperSize: 'A3' });
+		expect(result.ok && result.value.paperSize).toBe('A3');
+	});
+
+	it('defaults paperSize to A4 when the key is absent', () => {
+		const { paperSize: _p, ...withoutPaperSize } = VALID;
+		const result = parseCalendarOptions(withoutPaperSize);
+		expect(result.ok && result.value.paperSize).toBe('A4');
+	});
+
 	it('ignores unknown extra keys', () => {
 		const result = parse({ nonsense: 1 });
 		expect(result.ok && 'nonsense' in result.value).toBe(false);
@@ -111,6 +122,11 @@ describe('parseCalendarOptions — rejected input', () => {
 		[{ imageY: Number.NaN }, 'invalid_image_y'],
 		[{ imageY: Number.NEGATIVE_INFINITY }, 'invalid_image_y'],
 		[{ imageY: null }, 'invalid_image_y'],
+		[{ paperSize: 'a3' }, 'invalid_paper_size'],
+		[{ paperSize: 'A5' }, 'invalid_paper_size'],
+		[{ paperSize: null }, 'invalid_paper_size'],
+		[{ paperSize: 3 }, 'invalid_paper_size'],
+		[{ paperSize: '' }, 'invalid_paper_size'],
 		[{ scope: 'week' }, 'invalid_scope'],
 		[{ scope: undefined }, 'invalid_scope']
 	])('rejects %j with %s', (patch, code) => {
@@ -170,6 +186,17 @@ describe('yearPages', () => {
 			true
 		);
 	});
+
+	it('carries paperSize across every page', () => {
+		const a3pages = yearPages({ ...VALID, paperSize: 'A3' });
+		expect(a3pages.every((p) => p.paperSize === 'A3')).toBe(true);
+	});
+});
+
+describe('stripScope keeps paperSize', () => {
+	it('carries paperSize through', () => {
+		expect(stripScope({ ...VALID, paperSize: 'A3' }).paperSize).toBe('A3');
+	});
 });
 
 describe('pdfFilename', () => {
@@ -183,5 +210,15 @@ describe('pdfFilename', () => {
 
 	it('names a year export', () => {
 		expect(pdfFilename({ ...VALID, scope: 'year' })).toBe('calgen-2026.pdf');
+	});
+
+	it('appends -a3 to a month export', () => {
+		expect(pdfFilename({ ...VALID, scope: 'month', paperSize: 'A3' })).toBe(
+			'calgen-2026-09-a3.pdf'
+		);
+	});
+
+	it('appends -a3 to a year export', () => {
+		expect(pdfFilename({ ...VALID, scope: 'year', paperSize: 'A3' })).toBe('calgen-2026-a3.pdf');
 	});
 });

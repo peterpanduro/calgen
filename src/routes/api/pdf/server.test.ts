@@ -74,6 +74,29 @@ describe('happy path', () => {
 		expect(render.mock.calls[0][0].pages).toHaveLength(12);
 	});
 
+	it('accepts a payload omitting paperSize and defaults to A4', async () => {
+		const { paperSize: _p, ...withoutPaperSize } = monthRequest;
+		const res = await post(form(withoutPaperSize));
+		expect(res.status).toBe(200);
+		expect(res.headers.get('content-disposition')).toBe(
+			'attachment; filename="calgen-2026-09.pdf"'
+		);
+	});
+
+	it('appends -a3 to the month filename', async () => {
+		const res = await post(form({ ...monthRequest, paperSize: 'A3' }));
+		expect(res.headers.get('content-disposition')).toBe(
+			'attachment; filename="calgen-2026-09-a3.pdf"'
+		);
+	});
+
+	it('appends -a3 to the year filename', async () => {
+		const res = await post(form({ ...yearRequest, paperSize: 'A3' }));
+		expect(res.headers.get('content-disposition')).toBe(
+			'attachment; filename="calgen-2026-a3.pdf"'
+		);
+	});
+
 	it('drops the scope key before handing options to the renderer', async () => {
 		await post(form(monthRequest));
 		expect('scope' in render.mock.calls[0][0].pages[0]).toBe(false);
@@ -140,6 +163,7 @@ describe('request validation', () => {
 		[{ opacity: 5 }, 'invalid_opacity'],
 		[{ showHolidays: 'x' }, 'invalid_show_holidays'],
 		[{ title: 42 }, 'invalid_title'],
+		[{ paperSize: 'A5' }, 'invalid_paper_size'],
 		[{ scope: 'week' }, 'invalid_scope']
 	])('rejects %j with 400 %s', async (patch, code) => {
 		const res = await post(form({ ...monthRequest, ...patch }));

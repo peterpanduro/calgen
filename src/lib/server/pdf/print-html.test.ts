@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
+import { getPaperSize } from '$lib/calendar/paper';
 import { BACKGROUND_IMAGE_URL, buildPrintHtml } from './print-html';
 
+const A4 = getPaperSize('A4');
+const A3 = getPaperSize('A3');
+
 const page = (n: number) => `<section data-page="${n}"></section>`;
-const build = (count: number, hasImage = false, pageBg = '#f5ead8') =>
+const build = (count: number, hasImage = false, pageBg = '#f5ead8', paper = A4) =>
 	buildPrintHtml({
 		pages: Array.from({ length: count }, (_, i) => page(i)),
 		fontCss: '@font-face{font-family:"Figtree"}',
 		hasImage,
-		pageBg
+		pageBg,
+		paper
 	});
 
 const countOf = (haystack: string, needle: string) => haystack.split(needle).length - 1;
@@ -19,6 +24,24 @@ describe('buildPrintHtml', () => {
 
 	it('declares the A4 landscape page box with no margin', () => {
 		expect(build(1).replace(/\s+/g, ' ')).toContain('@page { size: 297mm 210mm; margin: 0 }');
+	});
+
+	it('declares the A3 landscape page box with no margin', () => {
+		// `@page` must match the requested sheet, not the layout page: Chromium lays print
+		// content out to this box and centres it — unscaled — on the paper otherwise, which was
+		// the A3 defect this test guards against (print-html.ts doc comment).
+		expect(build(1, false, '#f5ead8', A3).replace(/\s+/g, ' ')).toContain(
+			'@page { size: 420mm 297mm; margin: 0 }'
+		);
+	});
+
+	it.each([
+		['A4', A4],
+		['A3', A3]
+	] as const)('keeps .calgen-page at the 297 × 210 mm layout size for %s', (_, paper) => {
+		expect(build(1, false, '#f5ead8', paper).replace(/\s+/g, ' ')).toContain(
+			'.calgen-page { width: 297mm; height: 210mm;'
+		);
 	});
 
 	it.each([1, 12])('wraps each of the %i bodies in a page section', (count) => {

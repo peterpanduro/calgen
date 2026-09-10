@@ -15,7 +15,8 @@ const FIXTURE: CalendarOptions = {
 	title: '',
 	imageZoom: 1,
 	imageX: 50,
-	imageY: 50
+	imageY: 50,
+	paperSize: 'A4'
 };
 
 const body = (options: Partial<CalendarOptions> = {}, imageCss?: string): string =>
@@ -77,6 +78,10 @@ describe('September 2026, organic, 88 %', () => {
 
 	it('renders 35 day boxes', () => {
 		expect(countOf(html, DAY_BOX)).toBe(35);
+	});
+
+	it('renders identically for A3 — the paper size never reaches this component', () => {
+		expect(body({ paperSize: 'A3' })).toBe(body({ paperSize: 'A4' }));
 	});
 });
 

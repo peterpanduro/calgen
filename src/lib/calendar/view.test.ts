@@ -12,7 +12,8 @@ const BASE: CalendarOptions = {
 	title: '',
 	imageZoom: 1,
 	imageX: 50,
-	imageY: 50
+	imageY: 50,
+	paperSize: 'A4'
 };
 
 const view = (o: Partial<CalendarOptions> = {}) => buildCalendarView({ ...BASE, ...o });
