@@ -1,6 +1,7 @@
 import { render } from 'svelte/server';
 import CalendarPage from '$lib/components/CalendarPage.svelte';
 import { getFont, type FontPairing } from '$lib/calendar/fonts';
+import { getPaperSize, type PaperSize } from '$lib/calendar/paper';
 import { getScheme } from '$lib/calendar/schemes';
 import { createSemaphore } from '../semaphore';
 import type { Logger } from '../log';
@@ -30,14 +31,15 @@ export interface RendererDeps {
 	log: Logger;
 }
 
-const PDF_OPTIONS = (timeout: number): PdfOptions => ({
-	width: '297mm',
-	height: '210mm',
+const PDF_OPTIONS = (timeout: number, paper: PaperSize): PdfOptions => ({
+	width: `${paper.widthMm}mm`,
+	height: `${paper.heightMm}mm`,
 	printBackground: true,
 	// Explicit width/height wins; `true` was measured as worse (a 209.9 mm page box).
 	preferCSSPageSize: false,
 	margin: { top: '0', right: '0', bottom: '0', left: '0' },
-	scale: 1,
+	// A4's scale is the literal 1, so this object is unchanged from the pre-A3 PdfOptions.
+	scale: paper.scale,
 	landscape: false,
 	displayHeaderFooter: false,
 	tagged: false,
@@ -131,9 +133,7 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 		return browser;
 	}
 
-	async function buildHtml(job: RenderJob): Promise<string> {
-		if (job.pages.length === 0)
-			throw new RenderError('internal_error', 'Render job carries no pages');
+	async function buildHtml(job: RenderJob, paper: PaperSize): Promise<string> {
 		const imageCss = job.image ? 'var(--calgen-bg)' : 'none';
 		const rendered = job.pages.map((options) =>
 			render(CalendarPage, { props: { options, imageCss } })
@@ -145,7 +145,8 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 			head: [...new Set(rendered.map((r) => r.head))].join(''),
 			fontCss,
 			hasImage: job.image !== null,
-			pageBg: getScheme(job.pages[0].schemeId).bg
+			pageBg: getScheme(job.pages[0].schemeId).bg,
+			paper
 		});
 	}
 
@@ -190,6 +191,7 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 		browser: BrowserLike,
 		html: string,
 		image: RenderJob['image'],
+		paper: PaperSize,
 		open: { page: PageLike | null },
 		budget: Budget
 	): Promise<Uint8Array> {
@@ -201,7 +203,7 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 			if (budget.expired) throw new RenderError('render_timeout');
 			await open.page.setContent(html, { waitUntil: 'load', timeout: deps.timeoutMs });
 			if (budget.expired) throw new RenderError('render_timeout');
-			return await open.page.pdf(PDF_OPTIONS(deps.timeoutMs));
+			return await open.page.pdf(PDF_OPTIONS(deps.timeoutMs, paper));
 		} finally {
 			await closeQuietly(open);
 		}
@@ -250,9 +252,12 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 			// and racing only the printing step let a slow launch blow the budget with nothing
 			// listening to the rejection.
 			const job$ = (async () => {
-				const html = await buildHtml(job);
+				if (job.pages.length === 0)
+					throw new RenderError('internal_error', 'Render job carries no pages');
+				const paper = getPaperSize(job.pages[0].paperSize);
+				const html = await buildHtml(job, paper);
 				const browser = await connectedBrowser();
-				return printOn(browser, html, job.image, open, budget);
+				return printOn(browser, html, job.image, paper, open, budget);
 			})();
 
 			try {

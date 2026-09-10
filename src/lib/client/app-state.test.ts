@@ -69,6 +69,12 @@ describe('toOptions', () => {
 		expect(options).toMatchObject({ imageZoom: 2.5, imageX: 10, imageY: 90 });
 		expect('imageSize' in options).toBe(false);
 	});
+
+	it('carries paperSize', () => {
+		const state = createAppState();
+		state.paperSize = 'A3';
+		expect(toOptions(state).paperSize).toBe('A3');
+	});
 });
 
 describe('resetImageTransform', () => {

@@ -1,8 +1,14 @@
 <script lang="ts">
 	import { FONTS } from '$lib/calendar/fonts';
+	import { PAPER_SIZES } from '$lib/calendar/paper';
 	import { SCHEMES } from '$lib/calendar/schemes';
 	import { MONTHS, defaultTitle } from '$lib/calendar/strings';
-	import { DEFAULT_OPTIONS, type FontId, type SchemeId } from '$lib/calendar/types';
+	import {
+		DEFAULT_OPTIONS,
+		type FontId,
+		type PaperSizeId,
+		type SchemeId
+	} from '$lib/calendar/types';
 	import {
 		clearImage,
 		resetImageTransform,
@@ -181,6 +187,24 @@
 				</button>
 			{/each}
 		</div>
+	</section>
+
+	<section>
+		<h2>Pappersstorlek</h2>
+		<div class="paper-list">
+			{#each PAPER_SIZES as paper (paper.id)}
+				<button
+					type="button"
+					class="paper"
+					aria-pressed={app.paperSize === paper.id}
+					style="border-color:{border(app.paperSize === paper.id)}"
+					onclick={() => (app.paperSize = paper.id as PaperSizeId)}
+				>
+					<span>{paper.name}</span>
+				</button>
+			{/each}
+		</div>
+		<p class="hint">Samma layout i båda storlekarna — A3 skalas proportionellt.</p>
 	</section>
 </aside>
 
@@ -370,5 +394,26 @@
 		color: #201e1d;
 		text-align: left;
 		border: 2px solid #dcd3c4;
+	}
+	.paper-list {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 8px;
+	}
+	.paper {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 4px;
+		padding: 10px 16px;
+		border-radius: 16px;
+		cursor: pointer;
+		background: #f9f4ed;
+		color: #201e1d;
+		text-align: left;
+		border: 2px solid #dcd3c4;
+		font:
+			600 13px 'Figtree',
+			sans-serif;
 	}
 </style>

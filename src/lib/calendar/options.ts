@@ -1,4 +1,5 @@
 import { FONTS } from './fonts';
+import { PAPER_SIZES } from './paper';
 import { SCHEMES } from './schemes';
 import {
 	DEFAULT_OPTIONS,
@@ -6,6 +7,7 @@ import {
 	type ExportRequest,
 	type ExportScope,
 	type FontId,
+	type PaperSizeId,
 	type SchemeId
 } from './types';
 
@@ -20,6 +22,7 @@ const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 
 const SCHEME_IDS: ReadonlySet<string> = new Set(SCHEMES.map((s) => s.id));
 const FONT_IDS: ReadonlySet<string> = new Set(FONTS.map((f) => f.id));
+const PAPER_SIZE_IDS: ReadonlySet<string> = new Set(PAPER_SIZES.map((p) => p.id));
 
 const isIntBetween = (v: unknown, lo: number, hi: number): v is number =>
 	typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
@@ -77,6 +80,11 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 		return fail('invalid_image_x', 'Field "imageX" must be a finite number between 0 and 100.');
 	if (!isFiniteBetween(imageY, 0, 100))
 		return fail('invalid_image_y', 'Field "imageY" must be a finite number between 0 and 100.');
+	// Same carve-out as the three image-transform fields above: an old client never sent this
+	// field, and omitting it must keep rendering A4 rather than fail.
+	const paperSize = o.paperSize === undefined ? DEFAULT_OPTIONS.paperSize : o.paperSize;
+	if (typeof paperSize !== 'string' || !PAPER_SIZE_IDS.has(paperSize))
+		return fail('invalid_paper_size', 'Field "paperSize" must be "A4" or "A3".');
 	if (o.scope !== 'month' && o.scope !== 'year')
 		return fail('invalid_scope', 'Field "scope" must be "month" or "year".');
 
@@ -93,6 +101,7 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 			imageZoom,
 			imageX,
 			imageY,
+			paperSize: paperSize as PaperSizeId,
 			scope: o.scope as ExportScope
 		}
 	};
@@ -113,9 +122,13 @@ export function yearPages(o: CalendarOptions | ExportRequest): CalendarOptions[]
 	return Array.from({ length: 12 }, (_, month) => ({ ...base, month }));
 }
 
-/** Download filename: `calgen-2026-09.pdf` for a month, `calgen-2026.pdf` for a year. */
+/**
+ * Download filename: `calgen-2026-09.pdf` for a month, `calgen-2026.pdf` for a year, with
+ * `-a3` appended before `.pdf` when `paperSize === 'A3'`. A4 filenames are unchanged.
+ */
 export function pdfFilename(o: ExportRequest): string {
+	const suffix = o.paperSize === 'A3' ? '-a3' : '';
 	return o.scope === 'year'
-		? `calgen-${o.year}.pdf`
-		: `calgen-${o.year}-${String(o.month + 1).padStart(2, '0')}.pdf`;
+		? `calgen-${o.year}${suffix}.pdf`
+		: `calgen-${o.year}-${String(o.month + 1).padStart(2, '0')}${suffix}.pdf`;
 }

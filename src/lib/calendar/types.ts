@@ -1,3 +1,6 @@
+import type { PaperSizeId } from './paper';
+
+export type { PaperSizeId } from './paper';
 export type SchemeId = 'organic' | 'skog' | 'neutral' | 'terrakotta' | 'hav' | 'natt';
 export type FontId = 'organic' | 'klassisk' | 'lekfull' | 'modern';
 
@@ -20,6 +23,8 @@ export interface CalendarOptions {
 	imageX: number;
 	/** Vertical focal point of the photo, in `background-position` percent. Finite, 0–100. */
 	imageY: number;
+	/** Paper size. `'A4'` (default) or `'A3'`; A3 is the same layout scaled (SPEC §4.11). */
+	paperSize: PaperSizeId;
 }
 
 export const DEFAULT_OPTIONS: CalendarOptions = {
@@ -32,7 +37,8 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 	title: '',
 	imageZoom: 1,
 	imageX: 50,
-	imageY: 50
+	imageY: 50,
+	paperSize: 'A4'
 };
 
 export type ExportScope = 'month' | 'year';

@@ -11,7 +11,21 @@ import { loadPrintFontCss } from '../fonts';
 import { createLogger } from '../log';
 import { yearPages } from '$lib/calendar/options';
 import { DEFAULT_OPTIONS, type CalendarOptions } from '$lib/calendar/types';
-import { asLatin1, hasImageXObject, isPdf, pageCount } from '../../../../tests/pdf-utils';
+import {
+	asLatin1,
+	contentStreams,
+	hasImageXObject,
+	isPdf,
+	mediaBox,
+	pageCount
+} from '../../../../tests/pdf-utils';
+
+/** Absolute-tolerance point comparison; `toBeCloseTo`'s second argument is decimal digits, not
+ *  a tolerance, so quantised PDF geometry needs a plain difference check instead. */
+const closeTo = (actual: number | undefined, expected: number, tolerancePt: number) => {
+	expect(actual).toBeDefined();
+	expect(Math.abs((actual as number) - expected)).toBeLessThanOrEqual(tolerancePt);
+};
 
 const exe = resolveChromiumPathOrNull(process.env.CHROMIUM_PATH);
 
@@ -86,6 +100,9 @@ describe.skipIf(!exe)('pdf integration (real Chromium)', () => {
 		expect(isPdf(bytes)).toBe(true);
 		expect(pageCount(bytes)).toBe(1);
 		expect(bytes.length).toBeGreaterThan(20_000);
+		const box = mediaBox(bytes);
+		closeTo(box?.widthPt, 841.92, 0.5);
+		closeTo(box?.heightPt, 595.92, 0.5);
 	});
 
 	it('renders a whole year as exactly twelve pages, with no trailing blank', async () => {
@@ -143,5 +160,74 @@ describe.skipIf(!exe)('pdf integration (real Chromium)', () => {
 		expect(hasImageXObject(plain)).toBe(false);
 		expect(hasImageXObject(bytes)).toBe(true);
 		expect(bytes.length).toBeGreaterThan(plain.length);
+	});
+
+	describe('A3 paper size', () => {
+		it('renders a single month as a one-page PDF at 420 × 297 mm', async () => {
+			const bytes = await renderer.render({
+				pages: [month({ paperSize: 'A3' })],
+				image: null
+			});
+			expect(isPdf(bytes)).toBe(true);
+			expect(pageCount(bytes)).toBe(1);
+			const box = mediaBox(bytes);
+			// Measured against real Chromium (SPEC §4.11, §7.5): MediaBox [0 0 1191.12 841.91998] pt.
+			closeTo(box?.widthPt, 1191.12, 0.5);
+			closeTo(box?.heightPt, 841.92, 0.5);
+		});
+
+		it('renders a whole year as exactly twelve pages, with no trailing blank', async () => {
+			const bytes = await renderer.render({
+				pages: yearPages(month({ paperSize: 'A3' })),
+				image: null
+			});
+			expect(pageCount(bytes)).toBe(12);
+		});
+
+		it('renders a background image without adding pages', async () => {
+			const bytes = await renderer.render({
+				pages: [month({ paperSize: 'A3' })],
+				image: tinyJpeg()
+			});
+			expect(pageCount(bytes)).toBe(1);
+			expect(hasImageXObject(bytes)).toBe(true);
+		});
+
+		it('still embeds the heading font as a subset when scaled', async () => {
+			const bytes = await renderer.render({
+				pages: [month({ paperSize: 'A3' })],
+				image: null
+			});
+			const text = asLatin1(bytes);
+			expect(text).toContain('FontFile2');
+			expect(text).toMatch(/[A-Z]{6}\+Caprasimo/);
+		});
+
+		it('scales the printed content by the paper factor, not just the page container', async () => {
+			// Regression guard for the defect this feature originally shipped with: `@page`
+			// staying at 297×210mm made Chromium centre the unscaled A4 content on the A3
+			// sheet instead of scaling it — a bug MediaBox and pageCount cannot see, since both
+			// describe the page container, not the content drawn on it (SPEC §7.4, §7.5).
+			const a4 = await renderer.render({ pages: [month()], image: null });
+			const a3 = await renderer.render({
+				pages: [month({ paperSize: 'A3' })],
+				image: null
+			});
+			// Chromium's first content-stream operator is `q <sx> 0 0 <sy> <tx> <ty> cm`, the
+			// transform from PDF user space into the page's own coordinate space. Its magnitude
+			// grows with the paper scale only if the actual drawing commands were scaled, not
+			// just the MediaBox — which is exactly what the original defect got wrong.
+			const scaleOf = (bytes: Uint8Array): number => {
+				const stream = contentStreams(bytes)[0];
+				const match = /q\s+(-?[\d.]+)\s+0\s+0\s+-?[\d.]+\s+-?[\d.]+\s+-?[\d.]+\s+cm/.exec(
+					stream ?? ''
+				);
+				if (!match) throw new Error('No leading `cm` transform found in first content stream');
+				return Math.abs(Number(match[1]));
+			};
+			// Measured against real Chromium (Google Chrome 151): A4's transform is 3.125, A3's
+			// is 4.4187503 — ratio 1.41400010, matching `paper.ts`'s A3_SCALE (1.414).
+			expect(scaleOf(a3) / scaleOf(a4)).toBeCloseTo(1.414, 3);
+		});
 	});
 });

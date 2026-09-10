@@ -6,6 +6,7 @@ import {
 	type BrowserLike,
 	type InterceptedRequest,
 	type PageLike,
+	type PdfOptions,
 	type RenderJob
 } from './types';
 import { createLogger } from '../log';
@@ -42,6 +43,7 @@ interface RequestOutcome {
 interface Recorder {
 	setContentCalls: string[];
 	pdfCalls: number;
+	pdfOptions: PdfOptions[];
 	newPageCalls: number;
 	closedPages: number;
 	browserCloses: number;
@@ -55,6 +57,7 @@ function fakeBrowser(options: { pdf?: () => Promise<Uint8Array>; connected?: boo
 	const rec: Recorder = {
 		setContentCalls: [],
 		pdfCalls: 0,
+		pdfOptions: [],
 		newPageCalls: 0,
 		closedPages: 0,
 		browserCloses: 0,
@@ -80,9 +83,10 @@ function fakeBrowser(options: { pdf?: () => Promise<Uint8Array>; connected?: boo
 					rec.setContentCalls.push(html);
 					rec.callOrder.push('setContent');
 				},
-				async pdf() {
+				async pdf(pdfOptions) {
 					rec.pdfCalls++;
 					rec.callOrder.push('pdf');
+					rec.pdfOptions.push(pdfOptions);
 					return options.pdf ? await options.pdf() : FAKE_PDF;
 				},
 				async close() {
@@ -155,6 +159,43 @@ describe('happy path', () => {
 		expect(rec.setContentCalls).toHaveLength(1);
 		expect(rec.setContentCalls[0].split('class="calgen-page"')).toHaveLength(13);
 		expect(rec.pdfCalls).toBe(1);
+	});
+
+	it('requests A4 as 297×210mm at scale 1', async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		await renderer.render(job([{ ...DEFAULT_OPTIONS, paperSize: 'A4' }]));
+		expect(rec.pdfOptions[0]).toMatchObject({ width: '297mm', height: '210mm', scale: 1 });
+	});
+
+	it('requests A3 as 420×297mm at scale 1.414', async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		await renderer.render(job([{ ...DEFAULT_OPTIONS, paperSize: 'A3' }]));
+		expect(rec.pdfOptions[0]).toMatchObject({ width: '420mm', height: '297mm', scale: 1.414 });
+	});
+
+	it('renders a twelve-page A3 job as one pdf call', async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		await renderer.render(job(yearPages({ ...DEFAULT_OPTIONS, paperSize: 'A3' })));
+		expect(rec.pdfCalls).toBe(1);
+		expect(rec.pdfOptions[0]).toMatchObject({ width: '420mm', height: '297mm', scale: 1.414 });
+	});
+
+	it('renders identical print HTML for an A4 and an otherwise-identical A3 job, except @page', async () => {
+		// print-html.ts's `@page` rule MUST track the requested paper (that is the A3 fix), so
+		// the two documents cannot be string-equal any more; everything else still must match.
+		const a4 = fakeBrowser();
+		const a3 = fakeBrowser();
+		const a4Renderer = createPdfRenderer(deps(async () => a4.browser));
+		const a3Renderer = createPdfRenderer(deps(async () => a3.browser));
+		await a4Renderer.render(job([{ ...DEFAULT_OPTIONS, paperSize: 'A4' }]));
+		await a3Renderer.render(job([{ ...DEFAULT_OPTIONS, paperSize: 'A3' }]));
+		const stripPageSize = (html: string) => html.replace(/@page \{ size: [^}]+\}/, '@page { }');
+		expect(stripPageSize(a3.rec.setContentCalls[0])).toBe(stripPageSize(a4.rec.setContentCalls[0]));
+		expect(a4.rec.setContentCalls[0]).toContain('@page { size: 297mm 210mm; margin: 0 }');
+		expect(a3.rec.setContentCalls[0]).toContain('@page { size: 420mm 297mm; margin: 0 }');
 	});
 
 	it('switches the page to the CSS variable pointing at the fixed URL when an image is supplied', async () => {
@@ -576,6 +617,9 @@ describe('job validation', () => {
 	it('rejects a job with no pages instead of indexing past the end', async () => {
 		const { browser } = fakeBrowser();
 		const renderer = createPdfRenderer(deps(async () => browser));
-		await expect(renderer.render(job([]))).rejects.toMatchObject({ code: 'internal_error' });
+		await expect(renderer.render(job([]))).rejects.toMatchObject({
+			code: 'internal_error',
+			message: 'Render job carries no pages'
+		});
 	});
 });
