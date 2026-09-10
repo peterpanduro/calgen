@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPdfRenderer } from './renderer';
-import { RenderError, type BrowserLike, type PageLike, type RenderJob } from './types';
+import { BACKGROUND_IMAGE_URL } from './print-html';
+import {
+	RenderError,
+	type BrowserLike,
+	type InterceptedRequest,
+	type PageLike,
+	type RenderJob
+} from './types';
 import { createLogger } from '../log';
 import { DEFAULT_OPTIONS } from '$lib/calendar/types';
 import { yearPages } from '$lib/calendar/options';
@@ -16,6 +23,7 @@ interface LogLine {
 	id?: string;
 	scope?: string;
 	ms?: number;
+	url?: string;
 }
 
 /** A logger that keeps every line, so a test can assert what was emitted. */
@@ -25,12 +33,22 @@ function recordingLogger() {
 	return { log, lines, errors: () => lines.filter((l) => l.event === 'pdf.error') };
 }
 
+interface RequestOutcome {
+	url: string;
+	respondedWith?: { status: number; contentType: string; body: Uint8Array };
+	aborted?: boolean;
+}
+
 interface Recorder {
 	setContentCalls: string[];
 	pdfCalls: number;
 	newPageCalls: number;
 	closedPages: number;
 	browserCloses: number;
+	/** Call order across one page's lifecycle, so tests can assert interception is set up first. */
+	callOrder: string[];
+	interceptionEnabled: boolean[];
+	requestHandler: ((request: InterceptedRequest) => void) | null;
 }
 
 function fakeBrowser(options: { pdf?: () => Promise<Uint8Array>; connected?: boolean } = {}) {
@@ -39,22 +57,37 @@ function fakeBrowser(options: { pdf?: () => Promise<Uint8Array>; connected?: boo
 		pdfCalls: 0,
 		newPageCalls: 0,
 		closedPages: 0,
-		browserCloses: 0
+		browserCloses: 0,
+		callOrder: [],
+		interceptionEnabled: [],
+		requestHandler: null
 	};
 	const browser: BrowserLike = {
 		connected: options.connected ?? true,
 		async newPage(): Promise<PageLike> {
 			rec.newPageCalls++;
+			rec.callOrder.push('newPage');
 			return {
+				async setRequestInterception(enabled) {
+					rec.interceptionEnabled.push(enabled);
+					rec.callOrder.push(`setRequestInterception:${enabled}`);
+				},
+				on(event, handler) {
+					if (event === 'request') rec.requestHandler = handler;
+					return undefined;
+				},
 				async setContent(html) {
 					rec.setContentCalls.push(html);
+					rec.callOrder.push('setContent');
 				},
 				async pdf() {
 					rec.pdfCalls++;
+					rec.callOrder.push('pdf');
 					return options.pdf ? await options.pdf() : FAKE_PDF;
 				},
 				async close() {
 					rec.closedPages++;
+					rec.callOrder.push('close');
 				}
 			};
 		},
@@ -65,9 +98,26 @@ function fakeBrowser(options: { pdf?: () => Promise<Uint8Array>; connected?: boo
 	return { browser, rec };
 }
 
-const job = (pages = [DEFAULT_OPTIONS], imageDataUrl: string | null = null): RenderJob => ({
+/** Fires the fake page's registered `request` handler and reports how it resolved. */
+async function emitRequest(rec: Recorder, url: string): Promise<RequestOutcome> {
+	const outcome: RequestOutcome = { url };
+	if (!rec.requestHandler) throw new Error('no request handler registered');
+	rec.requestHandler({
+		url: () => url,
+		respond: async (response) => {
+			outcome.respondedWith = response;
+		},
+		abort: async () => {
+			outcome.aborted = true;
+		}
+	});
+	await Promise.resolve();
+	return outcome;
+}
+
+const job = (pages = [DEFAULT_OPTIONS], image: RenderJob['image'] = null): RenderJob => ({
 	pages,
-	imageDataUrl
+	image
 });
 
 const deps = (
@@ -107,14 +157,15 @@ describe('happy path', () => {
 		expect(rec.pdfCalls).toBe(1);
 	});
 
-	it('switches the page to the CSS variable when an image is supplied', async () => {
+	it('switches the page to the CSS variable pointing at the fixed URL when an image is supplied', async () => {
 		const { browser, rec } = fakeBrowser();
 		const renderer = createPdfRenderer(deps(async () => browser));
-		await renderer.render(job([DEFAULT_OPTIONS], 'data:image/jpeg;base64,AAAA'));
-		expect(rec.setContentCalls[0]).toContain('background-image:var(--calgen-bg)');
-		expect(rec.setContentCalls[0]).toContain(
-			':root{--calgen-bg:url("data:image/jpeg;base64,AAAA")}'
+		await renderer.render(
+			job([DEFAULT_OPTIONS], { bytes: new Uint8Array([1, 2, 3]), type: 'image/jpeg' })
 		);
+		expect(rec.setContentCalls[0]).toContain('background-image:var(--calgen-bg)');
+		expect(rec.setContentCalls[0]).toContain(`:root{--calgen-bg:url("${BACKGROUND_IMAGE_URL}")}`);
+		expect(rec.setContentCalls[0]).not.toContain('data:image');
 	});
 
 	it('uses no background image when none is supplied', async () => {
@@ -143,6 +194,83 @@ describe('happy path', () => {
 		const renderer = createPdfRenderer(deps(async () => browser));
 		await expect(renderer.render(job())).rejects.toThrow();
 		expect(rec.closedPages).toBe(1);
+	});
+});
+
+describe('request interception', () => {
+	it('enables interception before setContent, on every render, image or not', async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		await renderer.render(job());
+		expect(rec.interceptionEnabled).toEqual([true]);
+		expect(rec.callOrder.indexOf('setRequestInterception:true')).toBeLessThan(
+			rec.callOrder.indexOf('setContent')
+		);
+	});
+
+	it("answers the background URL with the job's bytes and declared type", async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		const bytes = new Uint8Array([9, 9, 9]);
+		await renderer.render(job([DEFAULT_OPTIONS], { bytes, type: 'image/png' }));
+		const outcome = await emitRequest(rec, BACKGROUND_IMAGE_URL);
+		expect(outcome.respondedWith).toEqual({ status: 200, contentType: 'image/png', body: bytes });
+		expect(outcome.aborted).toBeUndefined();
+	});
+
+	it('aborts any request that is not the background URL', async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		await renderer.render(
+			job([DEFAULT_OPTIONS], { bytes: new Uint8Array([1]), type: 'image/jpeg' })
+		);
+		const outcome = await emitRequest(rec, 'https://example.com/exfiltrate');
+		expect(outcome.aborted).toBe(true);
+		expect(outcome.respondedWith).toBeUndefined();
+	});
+
+	it('aborts the background URL too when no image was supplied', async () => {
+		const { browser, rec } = fakeBrowser();
+		const renderer = createPdfRenderer(deps(async () => browser));
+		await renderer.render(job());
+		const outcome = await emitRequest(rec, BACKGROUND_IMAGE_URL);
+		expect(outcome.aborted).toBe(true);
+		expect(outcome.respondedWith).toBeUndefined();
+	});
+
+	it('never leaves an unhandled rejection when respond() rejects (puppeteer double-handled)', async () => {
+		const seen: unknown[] = [];
+		const onUnhandled = (reason: unknown) => seen.push(reason);
+		process.on('unhandledRejection', onUnhandled);
+		try {
+			const recorder = recordingLogger();
+			const { browser, rec } = fakeBrowser();
+			const renderer = createPdfRenderer(deps(async () => browser, { log: recorder.log }));
+			await renderer.render(
+				job([DEFAULT_OPTIONS], { bytes: new Uint8Array([1]), type: 'image/jpeg' })
+			);
+			if (!rec.requestHandler) throw new Error('no request handler registered');
+			// Rig `respond()` to reject, as puppeteer's own `verifyInterception()` does when the
+			// request was already handled elsewhere — this must not become an unhandled rejection.
+			rec.requestHandler({
+				url: () => BACKGROUND_IMAGE_URL,
+				respond: async () => {
+					throw new Error('Request is already handled!');
+				},
+				abort: async () => {}
+			});
+			await new Promise((r) => setTimeout(r, 10));
+			expect(seen).toEqual([]);
+			expect(recorder.lines.filter((l) => l.event === 'pdf.intercept')).toEqual([
+				expect.objectContaining({
+					event: 'pdf.intercept',
+					url: BACKGROUND_IMAGE_URL,
+					message: 'Request is already handled!'
+				})
+			]);
+		} finally {
+			process.off('unhandledRejection', onUnhandled);
+		}
 	});
 });
 

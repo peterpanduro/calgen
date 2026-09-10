@@ -20,3 +20,8 @@ export function isPdf(bytes: Uint8Array): boolean {
 export function asLatin1(bytes: Uint8Array): string {
 	return Buffer.from(bytes).toString('latin1');
 }
+
+/** True when the PDF embeds at least one image XObject, whitespace between tokens tolerated. */
+export function hasImageXObject(bytes: Uint8Array): boolean {
+	return /\/Subtype\s*\/Image\b/.test(asLatin1(bytes));
+}

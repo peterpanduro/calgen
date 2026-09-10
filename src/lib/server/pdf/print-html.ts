@@ -1,10 +1,18 @@
+/**
+ * The URL the print page's background photo is served under. Answered by request interception
+ * in `renderer.ts` before `setContent` resolves; `.invalid` is a reserved TLD (RFC 2606) so the
+ * request can never leave interception even if it somehow escaped (defence in depth alongside
+ * `--host-resolver-rules=MAP * ~NOTFOUND`).
+ */
+export const BACKGROUND_IMAGE_URL = 'https://calgen.invalid/background';
+
 export interface PrintHtmlInput {
 	/** `render(CalendarPage, …).body` per PDF page. */
 	pages: string[];
 	/** `@font-face` rules with `data:` URIs. */
 	fontCss: string;
-	/** `data:` URL for the background photo, or `null`. */
-	imageDataUrl: string | null;
+	/** Whether a background photo was uploaded. */
+	hasImage: boolean;
 	/** Scheme `bg`; paints the ~0.24 mm sliver Chromium leaves at the page foot (SPEC §7.4). */
 	pageBg: string;
 	/** Concatenated `render().head`, forwarded so a future `<svelte:head>` cannot break print. */
@@ -14,17 +22,19 @@ export interface PrintHtmlInput {
 /**
  * Builds the standalone document Chromium prints.
  *
- * The background photo is emitted **once** as a custom property, so a twelve-page year export
- * carries one copy of a 27 MB data URL rather than twelve.
+ * The background photo is emitted **once** as a custom property referencing
+ * {@link BACKGROUND_IMAGE_URL}, so a twelve-page year export carries one short URL rather than
+ * twelve copies of the photo — and, unlike a `data:` URL, one that never exceeds Chromium's
+ * 2 MiB URL length limit no matter how large the photo is.
  */
 export function buildPrintHtml({
 	pages,
 	fontCss,
-	imageDataUrl,
+	hasImage,
 	pageBg,
 	head = ''
 }: PrintHtmlInput): string {
-	const rootVars = imageDataUrl ? `:root{--calgen-bg:url("${imageDataUrl}")}` : '';
+	const rootVars = hasImage ? `:root{--calgen-bg:url("${BACKGROUND_IMAGE_URL}")}` : '';
 	const sections = pages.map((body) => `<div class="calgen-page">${body}</div>`).join('');
 
 	return `<!doctype html>

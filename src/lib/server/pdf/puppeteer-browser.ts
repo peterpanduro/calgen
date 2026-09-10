@@ -1,7 +1,23 @@
 import { existsSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
 import type { Config } from '../config';
-import { RenderError, type BrowserFactory, type BrowserLike } from './types';
+import {
+	RenderError,
+	type BrowserFactory,
+	type BrowserLike,
+	type InterceptedRequest,
+	type PageLike
+} from './types';
+
+/**
+ * Compile-time guards: fail `pnpm check` the moment puppeteer-core's real `Page` or
+ * `HTTPRequest` stop structurally satisfying {@link PageLike}/{@link InterceptedRequest}, since
+ * `puppeteerBrowserFactory` below hands out real puppeteer objects cast straight to those types
+ * with no runtime check in between.
+ */
+const _pageLikeGuard: PageLike = null as unknown as import('puppeteer-core').Page;
+const _interceptedRequestGuard: InterceptedRequest =
+	null as unknown as import('puppeteer-core').HTTPRequest;
 
 /** Where a system Chromium usually lives, in the order we try. */
 const CANDIDATE_PATHS = [

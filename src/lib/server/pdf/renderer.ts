@@ -4,7 +4,7 @@ import { getFont, type FontPairing } from '$lib/calendar/fonts';
 import { getScheme } from '$lib/calendar/schemes';
 import { createSemaphore } from '../semaphore';
 import type { Logger } from '../log';
-import { buildPrintHtml } from './print-html';
+import { BACKGROUND_IMAGE_URL, buildPrintHtml } from './print-html';
 import {
 	RenderError,
 	type BrowserFactory,
@@ -134,7 +134,7 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 	async function buildHtml(job: RenderJob): Promise<string> {
 		if (job.pages.length === 0)
 			throw new RenderError('internal_error', 'Render job carries no pages');
-		const imageCss = job.imageDataUrl ? 'var(--calgen-bg)' : 'none';
+		const imageCss = job.image ? 'var(--calgen-bg)' : 'none';
 		const rendered = job.pages.map((options) =>
 			render(CalendarPage, { props: { options, imageCss } })
 		);
@@ -144,8 +144,37 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 			// Every page renders the same component, so their heads are identical; emit one copy.
 			head: [...new Set(rendered.map((r) => r.head))].join(''),
 			fontCss,
-			imageDataUrl: job.imageDataUrl,
+			hasImage: job.image !== null,
 			pageBg: getScheme(job.pages[0].schemeId).bg
+		});
+	}
+
+	/**
+	 * Answers the print page's one possible fetch — the background photo — and aborts every
+	 * other interceptable request, so the page can never reach the network even if a future
+	 * change gives it something to fetch. Registered before `setContent` on every render, image
+	 * or not.
+	 *
+	 * This is a network allowlist, not a resource allowlist: puppeteer's
+	 * `HTTPRequest.canBeIntercepted()` returns `false` for `data:` URLs (and memory-cache hits),
+	 * so `abort()` is a no-op for them and they load regardless — which is exactly why the
+	 * `data:`-URI `@font-face` faces still render.
+	 */
+	function interceptRequests(page: PageLike, image: RenderJob['image']): void {
+		page.on('request', (request) => {
+			// Puppeteer's `verifyInterception()` throws inside `respond`/`abort` when the request was
+			// already handled (e.g. by Chromium itself). That throw happens inside an async method,
+			// so an unhandled promise here would be an unhandled rejection that kills the process;
+			// logging it here keeps the render itself unaffected while still surfacing the failure.
+			const onFailure = (cause: unknown): void =>
+				deps.log.warn('pdf.intercept', { url: request.url(), message: (cause as Error).message });
+			if (image && request.url() === BACKGROUND_IMAGE_URL) {
+				request
+					.respond({ status: 200, contentType: image.type, body: image.bytes })
+					.catch(onFailure);
+			} else {
+				request.abort().catch(onFailure);
+			}
 		});
 	}
 
@@ -160,11 +189,15 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 	async function printOn(
 		browser: BrowserLike,
 		html: string,
+		image: RenderJob['image'],
 		open: { page: PageLike | null },
 		budget: Budget
 	): Promise<Uint8Array> {
 		try {
 			open.page = await browser.newPage();
+			if (budget.expired) throw new RenderError('render_timeout');
+			await open.page.setRequestInterception(true);
+			interceptRequests(open.page, image);
 			if (budget.expired) throw new RenderError('render_timeout');
 			await open.page.setContent(html, { waitUntil: 'load', timeout: deps.timeoutMs });
 			if (budget.expired) throw new RenderError('render_timeout');
@@ -219,7 +252,7 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 			const job$ = (async () => {
 				const html = await buildHtml(job);
 				const browser = await connectedBrowser();
-				return printOn(browser, html, open, budget);
+				return printOn(browser, html, job.image, open, budget);
 			})();
 
 			try {
@@ -230,7 +263,7 @@ export function createPdfRenderer(deps: RendererDeps): PdfRenderer {
 					pages: job.pages.length,
 					bytes: bytes.length,
 					ms: Date.now() - started,
-					hasImage: job.imageDataUrl !== null
+					hasImage: job.image !== null
 				});
 				return bytes;
 			} catch (cause) {

@@ -65,7 +65,7 @@ describe('happy path', () => {
 	it('renders a single page for a month scope', async () => {
 		await post(form(monthRequest));
 		expect(render.mock.calls[0][0].pages).toHaveLength(1);
-		expect(render.mock.calls[0][0].imageDataUrl).toBeNull();
+		expect(render.mock.calls[0][0].image).toBeNull();
 	});
 
 	it('renders twelve pages with the year filename for a year scope', async () => {
@@ -88,16 +88,19 @@ describe('happy path', () => {
 		['jpeg', jpeg],
 		['png', png],
 		['webp', webp]
-	])('accepts a %s background and passes a data URL', async (_name, make) => {
+	])('accepts a %s background and passes its raw bytes and type', async (_name, make) => {
 		const file = make();
+		const expectedBytes = new Uint8Array(await file.arrayBuffer());
 		await post(form(monthRequest, file));
-		expect(render.mock.calls[0][0].imageDataUrl).toMatch(new RegExp(`^data:${file.type};base64,`));
+		const image = render.mock.calls[0][0].image;
+		expect(image?.type).toBe(file.type);
+		expect(image?.bytes).toEqual(expectedBytes);
 	});
 
 	it('ignores an empty image part', async () => {
 		const empty = new File([], 'a.jpg', { type: 'image/jpeg' });
 		await post(form(monthRequest, empty));
-		expect(render.mock.calls[0][0].imageDataUrl).toBeNull();
+		expect(render.mock.calls[0][0].image).toBeNull();
 	});
 });
 

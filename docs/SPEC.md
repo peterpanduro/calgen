@@ -200,16 +200,17 @@ click "Exportera PDF" / "Exportera hela året"
         3. parseCalendarOptions(JSON.parse(options))           (400 on failure)
         4. validate image: type in {jpeg,png,webp}, size ≤ MAX_UPLOAD_BYTES
         5. pages = scope === 'year' ? yearPages(o) : [stripScope(o)]
-        6. getPdfRenderer().render({ pages, imageDataUrl })
+        6. getPdfRenderer().render({ pages, image })          (image: { bytes, type } | null)
              a. semaphore.acquire()            (queue wait ≤ PDF_QUEUE_TIMEOUT_MS → 503)
              b. browser = await lazyLaunch()
              c. page = await browser.newPage()
-             d. imageCss = imageDataUrl ? 'var(--calgen-bg)' : 'none'   (renderer-internal)
-                html = buildPrintHtml({ pages: bodies, fontCss, imageDataUrl, pageBg })
+             d. imageCss = image ? 'var(--calgen-bg)' : 'none'   (renderer-internal)
+                html = buildPrintHtml({ pages: bodies, fontCss, hasImage: image !== null, pageBg })
                    where bodies[i] = render(CalendarPage, { props: { options, imageCss } }).body
-             e. page.setContent(html, { waitUntil: 'load' })
-             f. page.pdf({ width:'297mm', height:'210mm', printBackground:true, ... })
-             g. finally page.close(); semaphore.release()
+             e. page.setRequestInterception(true); page.on('request', …)   (§7.1, §7.4)
+             f. page.setContent(html, { waitUntil: 'load' })
+             g. page.pdf({ width:'297mm', height:'210mm', printBackground:true, ... })
+             h. finally page.close(); semaphore.release()
         7. 200 application/pdf
              Content-Disposition: attachment; filename="calgen-2026-09.pdf"
   → export.ts: response.blob() → object URL → <a download> click → revoke
@@ -997,11 +998,18 @@ const view = $derived(buildCalendarView(options));
 ```
 
 **Why `imageCss` and not `imageUrl`:** the whole-year PDF renders twelve copies of this
-component in one document. With an `imageUrl` prop, a 20 MB photo as a data URL would be
-inlined twelve times (≈ 320 MB of HTML). With `imageCss`, the print template emits the data
-URL **once** as `:root{--calgen-bg:url("data:image/jpeg;base64,…")}` and every page uses
-`var(--calgen-bg)`. The preview passes `imageCss(objectUrl)` from `css.ts`. The value is never
-taken from the client — the server constructs it — so there is no CSS-injection surface.
+component in one document. With an `imageUrl` prop, the photo would be inlined twelve times.
+With `imageCss`, the print template emits one URL **once** as `:root{--calgen-bg:url(…)}` and
+every page uses `var(--calgen-bg)`. The preview passes `imageCss(objectUrl)` from `css.ts`. The
+value is never taken from the client — the server constructs it — so there is no
+CSS-injection surface.
+
+The print template's URL is not a `data:` URL of the photo (§7.1, §7.4): Chromium silently
+drops any URL longer than 2 MiB (`url::kMaxURLChars`), which a base64-encoded phone photo
+routinely exceeds, so the renderer instead serves the photo's raw bytes under a short fixed
+URL via request interception. The twelve-copies argument above is unaffected — it is the
+reason the URL is emitted once at the root rather than once per page — only the mechanism
+behind that one URL changed.
 
 ### 5.2 DOM structure and exact styles
 
@@ -1849,15 +1857,21 @@ all — a Ctrl/Cmd-modified wheel is the browser's page zoom and is never forwar
 
 ### 7.1 Interfaces (`src/lib/server/pdf/types.ts`)
 
-Deliberately the smallest surface that covers the job — one `setContent`, one `pdf`, one
-`close`. A fake implementation is ~20 lines.
+Deliberately the smallest surface that covers the job — one `setContent`, one request
+interceptor, one `pdf`, one `close`. A fake implementation is ~25 lines.
 
 ```ts
+export interface InterceptedRequest {
+	url(): string;
+	respond(response: { status: number; contentType: string; body: Uint8Array }): Promise<void>;
+	abort(): Promise<void>;
+}
 export interface PageLike {
-	setContent(
-		html: string,
-		options?: { waitUntil?: 'load' | 'networkidle0'; timeout?: number }
-	): Promise<void>;
+	// `'networkidle0'`/`'networkidle2'` are excluded because puppeteer-core 25's
+	// `SetContentWaitForOptions` itself excludes them; nothing here passes them anyway.
+	setContent(html: string, options?: { waitUntil?: 'load'; timeout?: number }): Promise<void>;
+	setRequestInterception(enabled: boolean): Promise<void>;
+	on(event: 'request', handler: (request: InterceptedRequest) => void): unknown;
 	pdf(options: PdfOptions): Promise<Uint8Array>;
 	close(): Promise<void>;
 }
@@ -1871,8 +1885,12 @@ export type BrowserFactory = () => Promise<BrowserLike>;
 export interface RenderJob {
 	/** One entry per PDF page; length 1 or 12. */
 	pages: CalendarOptions[];
-	/** data URL for the background, or null. */
-	imageDataUrl: string | null;
+	/**
+	 * The background photo's raw bytes and validated MIME type, or null. Served to the print
+	 * page under a fixed URL via request interception (§7.4) rather than a data URL, because
+	 * Chromium silently drops any URL over 2 MiB — a base64-encoded phone photo routinely does.
+	 */
+	image: { bytes: Uint8Array; type: string } | null;
 }
 /** Observability context for one render. Reaches the log lines only, never the output. */
 export interface RenderContext {
@@ -1931,16 +1949,18 @@ Lifecycle:
 The renderer — not the endpoint — owns the image→CSS mapping. Inside `render(job)`:
 
 ```ts
-const imageCss = job.imageDataUrl ? 'var(--calgen-bg)' : 'none';
+const imageCss = job.image ? 'var(--calgen-bg)' : 'none';
 const bodies = job.pages.map(
 	(options) => render(CalendarPage, { props: { options, imageCss } }).body
 );
 const pageBg = getScheme(job.pages[0].schemeId).bg; // every page shares one scheme
-const html = buildPrintHtml({ pages: bodies, fontCss, imageDataUrl: job.imageDataUrl, pageBg });
+const html = buildPrintHtml({ pages: bodies, fontCss, hasImage: job.image !== null, pageBg });
 ```
 
-`RenderJob` therefore carries only `{ pages, imageDataUrl }`; `imageCss` never crosses the
-endpoint boundary.
+`RenderJob` therefore carries only `{ pages, image }`; `imageCss` never crosses the endpoint
+boundary. Before `setContent`, `printOn` also enables request interception on the new page and
+registers the single handler described in §7.4, so the photo (when present) reaches the print
+page without ever crossing the URL-length limit a `data:` URL would hit.
 
 `src/lib/server/pdf/instance.ts` exposes `getPdfRenderer(): PdfRenderer` — a module-level
 singleton wired to the real `puppeteerBrowserFactory` and `config`. `hooks.server.ts`
@@ -2068,11 +2088,28 @@ the font were slow. Combined with puppeteer's `waitForFonts` this is belt and br
 
 ### 7.4 Standalone print HTML (`print-html.ts`)
 
+**Why not a `data:` URL.** Chromium enforces a hard 2,097,152-character limit on any URL
+(`url::kMaxURLChars`) and silently drops longer ones rather than erroring — a `background-image`
+referencing an over-limit `data:` URL simply never paints, while the render otherwise succeeds
+(no error, `hasImage:true` in the logs, a PDF with no photo). A base64-encoded phone photo
+routinely exceeds it: verified threshold is 2,097,091 chars renders, 2,097,223 does not, i.e.
+somewhere above ~1.5 MB of original photo bytes. `MAX_UPLOAD_BYTES` allows 20 MiB, so this was
+not an edge case.
+
+Instead the photo is served to the print page under one short, constant URL —
+`BACKGROUND_IMAGE_URL = 'https://calgen.invalid/background'` (`.invalid` is a reserved TLD,
+RFC 2606) — answered by puppeteer request interception (§7.2, §7.5) rather than embedded in the
+HTML at all. This has no length limit regardless of photo size, and doubles as a hard fetch
+allowlist: interception aborts every request the print page could ever issue except that one.
+
 ```ts
+export const BACKGROUND_IMAGE_URL = 'https://calgen.invalid/background';
+
 export function buildPrintHtml(input: {
 	pages: string[]; // render(CalendarPage, …).body per page
 	fontCss: string;
-	imageDataUrl: string | null;
+	/** Whether a background photo was uploaded. */
+	hasImage: boolean;
 	/** Scheme `bg`; paints the ~0.24 mm sliver Chromium leaves at the page foot. */
 	pageBg: string;
 }): string;
@@ -2107,8 +2144,8 @@ Template:
 </html>
 ```
 
-where `rootVars` is `:root{--calgen-bg:url("data:image/jpeg;base64,…")}` when an image was
-uploaded, and empty otherwise.
+where `rootVars` is `:root{--calgen-bg:url("https://calgen.invalid/background")}` when an image
+was uploaded, and empty otherwise.
 
 Notes:
 
@@ -2125,8 +2162,7 @@ Notes:
   page, which is a far worse failure. All pages in one export share one scheme, so a single
   `pageBg` is always correct.
 - The whole document is built as one string; there is no templating dependency. `pages[i]`
-  is already-escaped Svelte output. `fontCss`, `pageBg` and `imageDataUrl` are
-  server-constructed.
+  is already-escaped Svelte output. `fontCss`, `pageBg` and `hasImage` are server-constructed.
 
 **Tests** (`print-html.test.ts`): output starts with `<!doctype html>`; contains
 `@page { size: 297mm 210mm` (whitespace-insensitive assertion); contains exactly `n`
@@ -2151,8 +2187,9 @@ image is supplied; the supplied font CSS appears verbatim; `html, body` carry th
    PDFs are exactly the failure mode we cannot afford.
 3. **Smaller dependency.** `puppeteer-core` has no browser download, no driver process, no
    `playwright` CLI. `playwright-core` would pull in a driver harness we never use.
-4. Playwright's advantages (selectors engine, auto-waiting, tracing) are irrelevant: we call
-   `setContent` and `pdf`, nothing else.
+4. Playwright's advantages (selectors engine, auto-waiting, tracing) are irrelevant: the render
+   path calls `setContent` and `pdf`, plus `Fetch.enable`/`fulfillRequest`/`failRequest`
+   underneath `setRequestInterception` for the background photo — nothing beyond that.
 
 Pin `puppeteer-core` to the current major (`25.9.0` at time of writing) with an exact version
 in `package.json` and let Renovate/manual bumps move it.
@@ -2191,13 +2228,21 @@ export const puppeteerBrowserFactory =
 		}) as unknown as BrowserLike;
 ```
 
-`--host-resolver-rules=MAP * ~NOTFOUND` guarantees the render can never reach out, so a
-malicious/odd `data:` payload cannot exfiltrate and a missing font can never be silently
-fetched from Google. This is cheap defence and makes the "no network" claim testable.
+`--host-resolver-rules=MAP * ~NOTFOUND` guarantees the render can never reach the real network,
+so a missing font can never be silently fetched from Google. It is defence in depth beneath the
+renderer's own request interception (§7.2, §7.4), which is the primary control: interception
+answers only `BACKGROUND_IMAGE_URL` and `abort()`s everything else, so even a request that
+somehow bypassed the host-resolver rule (a `.invalid` TLD never resolves regardless) would still
+be refused at the page level. This is cheap defence and makes the "no network" claim testable.
+Interception is a network allowlist, not a resource allowlist: puppeteer's
+`HTTPRequest.canBeIntercepted()` returns `false` for `data:` URLs (and memory-cache hits), so
+`abort()` is a no-op for them and they load regardless — which is exactly why the §7.3 font
+`@font-face` faces, embedded as `data:` URIs, still render.
 
 **`pipe: true` is required, not a preference.** It moves CDP onto stdio, which removes the
 localhost DevTools WebSocket entirely — no listening port to secure, and no WebSocket
-frame-size question for the ~28 MB `setContent` payload a 20 MB background produces.
+frame-size question for the interception responses a 20 MB background produces (the photo
+travels as a `request.respond()` body, not through `setContent`'s HTML payload).
 
 **`handleSIGINT/SIGTERM/SIGHUP: false` is required.** By default puppeteer installs its own
 signal handlers, and its `SIGINT` handler kills the browser and calls `process.exit(130)` —
@@ -2230,8 +2275,10 @@ the graceful shutdown this spec requires.
 ```
 
 `page.setContent(html, { waitUntil: 'load', timeout: cfg.pdfTimeoutMs })`. `'load'` (not
-`'networkidle0'`) — there is no network, and `networkidle0` would add a fixed 500 ms wait per
-render.
+`'networkidle0'`) — request interception (§7.2, §7.4) is registered before `setContent`, so the
+one request the page can issue (the background photo) is answered or aborted synchronously and
+`load` fires right after; `networkidle0` would still add a fixed 500 ms wait per render on top
+of that for no benefit.
 
 **Measured output geometry.** With these options Chromium emits `MediaBox [0 0 841.92 595.92]`
 pt — 297.02 × 210.24 mm, because the page box is quantised to 1/100 inch. Content is not
@@ -2258,6 +2305,19 @@ and returns `Buffer.from('%PDF-1.4 fake')`:
 - after `shutdown()`, `render()` rejects with `renderer_unavailable`; `browser.close()` called
   once; a second `shutdown()` is a no-op.
 - a disconnected browser (`connected === false`) triggers exactly one relaunch-and-retry.
+- request interception is enabled before `setContent`, on every render, image or not.
+- a request for `BACKGROUND_IMAGE_URL` is answered with the job's `image.bytes`/`image.type`
+  when an image was supplied; any other URL, and `BACKGROUND_IMAGE_URL` itself when no image
+  was supplied, is `abort()`ed.
+- `respond()` rejecting (puppeteer's `verifyInterception()` double-handled case) never becomes
+  an unhandled rejection, and logs `pdf.intercept` with the request's `url` and the failure's
+  `message` instead of swallowing it.
+
+`renderer.integration.test.ts` (real Chromium) additionally builds an 800×800 PNG from
+`crypto.randomBytes` at test time (1,920,000 bytes of raw pixel data, ~1.83 MiB; a 1,921,153-byte
+PNG) — large enough that its base64 form exceeds the 2 MiB URL limit above — and asserts the
+resulting PDF contains an image XObject
+(`tests/pdf-utils.ts#hasImageXObject`), which a `data:`-URL-based implementation fails.
 
 ---
 
@@ -2334,24 +2394,30 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!parsed.ok) return err(400, parsed.code, parsed.message);
 
   const file = form.get('image');
-  let imageDataUrl: string | null = null;
+  let image: { bytes: Uint8Array; type: string } | null = null;
   if (file instanceof File && file.size > 0) {
     if (file.size > cfg.maxUploadBytes) return err(413, 'image_too_large', '…');
     if (!ALLOWED_IMAGE_TYPES.has(file.type)) return err(415, 'unsupported_image_type', '…');
     const bytes = new Uint8Array(await file.arrayBuffer());
     if (sniffImageType(bytes) !== file.type)
       return err(415, 'unsupported_image_type', 'Declared type does not match content.');
-    imageDataUrl = `data:${file.type};base64,${Buffer.from(bytes).toString('base64')}`;
+    image = { bytes, type: file.type };
   } else if (file != null && !(file instanceof File)) {
     return err(400, 'invalid_image', '…');
   }
 
   const o = parsed.value;
   const pages = o.scope === 'year' ? yearPages(o) : [stripScope(o)];
-  const pdf = await getPdfRenderer().render({ pages, imageDataUrl });   // RenderError → mapped
+  const pdf = await getPdfRenderer().render({ pages, image });   // RenderError → mapped
   return new Response(pdf, { status: 200, headers: { … } });
 };
 ```
+
+The endpoint no longer base64-encodes the upload at all — the renderer takes the raw bytes and
+serves them to the print page under a fixed URL via request interception (§7.1, §7.4). This is
+what fixed the silent-drop bug: a `data:` URL over 2 MiB is dropped by Chromium with no error,
+which a base64-encoded phone photo (routinely well above `MAX_UPLOAD_BYTES`'s low end) hit in
+practice despite the endpoint validating and accepting it correctly.
 
 The image transform needs nothing of its own here: `imageZoom`/`imageX`/`imageY` are ordinary
 `CalendarOptions` fields, so they are validated by `parseCalendarOptions` and carried into
@@ -2560,11 +2626,14 @@ inspect node:24-trixie-slim`); fall back to `node:24-bookworm-slim` if not, and 
   **Signal handling is owned by `tini` + adapter-node only** — puppeteer's own handlers are
   disabled at launch (§7.5). If they were left on, `docker stop` would kill the process before
   in-flight renders drained.
-- **Memory floor: ≥ 1.5 GB per container.** A single 20 MiB upload costs roughly
-  20 MB (`arrayBuffer`) + 27 MB (base64) + 27 MB (HTML concat) + a CDP copy on the way out,
-  plus ~80 MB inside Chromium once the image is decoded to RGBA — and `PDF_CONCURRENCY`
-  defaults to 2. Set `NODE_OPTIONS=--max-old-space-size=768` so Node fails with a clean
-  heap error instead of being OOM-killed by the cgroup, and size the container above that.
+- **Memory floor: ≥ 1.5 GB per container.** A single 20 MiB upload costs roughly 20 MB (raw
+  bytes held by the renderer) + a transient ~27 MB base64 copy while puppeteer relays it to
+  Chromium as a request-interception response + ~80 MB decoded inside Chromium once the image
+  is decoded to RGBA — and `PDF_CONCURRENCY` defaults to 2. The photo no longer travels through
+  the print HTML itself; it is served under a fixed URL via request interception rather than
+  inlined as a `data:` URL (§7.4). Set `NODE_OPTIONS=--max-old-space-size=768` so Node fails
+  with a clean heap error instead of being OOM-killed by the cgroup, and size the container
+  above that.
 - **Sandbox.** Chromium's namespace sandbox needs unprivileged user namespaces. Default is
   `CHROMIUM_NO_SANDBOX=false` (sandbox on). If the container platform blocks `unshare`, run
   with `--cap-add=SYS_ADMIN` **or** set `CHROMIUM_NO_SANDBOX=true` and compensate with
@@ -3060,18 +3129,19 @@ Node on this machine is v24.18.0, pnpm 11.17.0.
 
 ### 14.8 Risks
 
-| Risk                                                                      | Likelihood        | Mitigation                                                                                                                                                                                                             |
-| ------------------------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Year PDF produces 13 pages (trailing blank) or 24 (overflow)              | medium            | `:last-child{break-after:auto}`; `overflow:hidden` on each page; the integration test asserts exactly 12                                                                                                               |
-| Chromium version drift breaks CDP calls                                   | low               | `puppeteer-core` speaks plain CDP; only `setContent`/`pdf` are used — the two most stable commands. Pin the Debian base image tag                                                                                      |
-| Sandbox blocked by the container platform                                 | medium            | `CHROMIUM_NO_SANDBOX` escape hatch, documented with its cost                                                                                                                                                           |
-| 20 MB image → ~27 MB base64 + ~80 MB decoded RGBA in Chromium, per render | medium            | `MAX_UPLOAD_BYTES` 20 MiB × `PDF_CONCURRENCY` 2 ⇒ container memory floor **1.5 GB** and `NODE_OPTIONS=--max-old-space-size=768` (§10), so Node throws a heap error instead of being OOM-killed. §14.10 is the fallback |
-| Signal handling hijacked (puppeteer `SIGINT` → `process.exit(130)`)       | high if defaulted | `handleSIGINT/SIGTERM/SIGHUP: false` at launch (§7.5); `docker stop` drain verified in step 16                                                                                                                         |
-| CSP silently absent because config went into `svelte.config.js`           | high if defaulted | §2.5.6 forbids the file; step 1 verifies the `content-security-policy` response header                                                                                                                                 |
-| `POST /api/pdf` returns 403 behind a proxy                                | medium            | `ORIGIN` is required in production and `config.ts` refuses to start without it (§9)                                                                                                                                    |
-| Fonts not embedded (blank/fallback glyphs in PDF)                         | low               | data-URI `@font-face` + `font-display:block` + `waitForFonts:true` + `--host-resolver-rules=MAP * ~NOTFOUND` + an integration assertion on `FontFile2`                                                                 |
-| Someone adds a `<style>` block to `CalendarPage.svelte`                   | medium            | Test asserts the SSR body contains no `class="svelte-`                                                                                                                                                                 |
-| Browser process leak under load                                           | low               | Single shared browser, pages always closed in `finally`, `tini` reaps, semaphore bounds page count                                                                                                                     |
+| Risk                                                                                                                                                                               | Likelihood         | Mitigation                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Year PDF produces 13 pages (trailing blank) or 24 (overflow)                                                                                                                       | medium             | `:last-child{break-after:auto}`; `overflow:hidden` on each page; the integration test asserts exactly 12                                                                                                                       |
+| Chromium version drift breaks CDP calls                                                                                                                                            | low                | `puppeteer-core` speaks plain CDP; the render path uses `setContent`/`pdf` plus `Fetch.enable`/`fulfillRequest`/`failRequest` underneath request interception — all stable, long-lived commands. Pin the Debian base image tag |
+| Sandbox blocked by the container platform                                                                                                                                          | medium             | `CHROMIUM_NO_SANDBOX` escape hatch, documented with its cost                                                                                                                                                                   |
+| 20 MB image → ~27 MB base64 + ~80 MB decoded RGBA in Chromium, per render                                                                                                          | medium             | `MAX_UPLOAD_BYTES` 20 MiB × `PDF_CONCURRENCY` 2 ⇒ container memory floor **1.5 GB** and `NODE_OPTIONS=--max-old-space-size=768` (§10), so Node throws a heap error instead of being OOM-killed. §14.10 is the fallback         |
+| Background photo silently missing from the PDF above ~1.5 MB (a `data:` URL over Chromium's 2 MiB `url::kMaxURLChars` limit is dropped with no error, `hasImage:true` in the logs) | was high, now none | Photo served under a fixed URL via request interception (§7.1, §7.4, §7.5) instead of a `data:` URL; integration test renders with an image whose base64 form exceeds the limit and asserts an image XObject is present        |
+| Signal handling hijacked (puppeteer `SIGINT` → `process.exit(130)`)                                                                                                                | high if defaulted  | `handleSIGINT/SIGTERM/SIGHUP: false` at launch (§7.5); `docker stop` drain verified in step 16                                                                                                                                 |
+| CSP silently absent because config went into `svelte.config.js`                                                                                                                    | high if defaulted  | §2.5.6 forbids the file; step 1 verifies the `content-security-policy` response header                                                                                                                                         |
+| `POST /api/pdf` returns 403 behind a proxy                                                                                                                                         | medium             | `ORIGIN` is required in production and `config.ts` refuses to start without it (§9)                                                                                                                                            |
+| Fonts not embedded (blank/fallback glyphs in PDF)                                                                                                                                  | low                | data-URI `@font-face` + `font-display:block` + `waitForFonts:true` + `--host-resolver-rules=MAP * ~NOTFOUND` + an integration assertion on `FontFile2`                                                                         |
+| Someone adds a `<style>` block to `CalendarPage.svelte`                                                                                                                            | medium             | Test asserts the SSR body contains no `class="svelte-`                                                                                                                                                                         |
+| Browser process leak under load                                                                                                                                                    | low                | Single shared browser, pages always closed in `finally`, `tini` reaps, semaphore bounds page count                                                                                                                             |
 
 ### 14.9 Product-owner decisions — all resolved
 

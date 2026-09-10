@@ -141,10 +141,13 @@ Invalid values fail fast at startup rather than falling back silently.
 
 - Image is ~1.08 GB (`node:24-trixie-slim` plus the Debian `chromium` package); documented,
   not optimised.
-- **Memory floor ≥ 1.5 GB per container.** A 20 MiB upload costs roughly 20 MB + 27 MB base64
-  - 27 MB HTML + ~80 MB decoded inside Chromium, times `PDF_CONCURRENCY`.
-    `NODE_OPTIONS=--max-old-space-size=768` makes Node throw a clean heap error instead of being
-    OOM-killed by the cgroup.
+- **Memory floor ≥ 1.5 GB per container.** A 20 MiB upload costs roughly 20 MB (raw bytes held
+  by the renderer) + a transient ~27 MB base64 copy while puppeteer relays it to Chromium as a
+  request-interception response + ~80 MB decoded inside Chromium, times `PDF_CONCURRENCY`. The
+  photo no longer travels through the print HTML itself — it is served under a fixed URL via
+  request interception rather than inlined as a `data:` URL, because Chromium silently drops
+  any URL over 2 MiB. `NODE_OPTIONS=--max-old-space-size=768` makes Node throw a clean heap
+  error instead of being OOM-killed by the cgroup.
 - `--shm-size=256m` is recommended even though `--disable-dev-shm-usage` is passed.
 - **The Chromium sandbox is not decorative:** the uploaded image is attacker-controlled input
   decoded by Chromium's image parsers. Keep `CHROMIUM_NO_SANDBOX=false`. If the platform blocks

@@ -22,35 +22,35 @@ const err = (status: number, error: string, message: string): Response =>
 	});
 
 interface ImageResult {
-	dataUrl: string | null;
+	value: { bytes: Uint8Array; type: string } | null;
 	error?: Response;
 }
 
 /** Validates the optional image part: declared type, size, and actual content. */
 async function readImage(part: FormDataEntryValue | null): Promise<ImageResult> {
-	if (part === null) return { dataUrl: null };
+	if (part === null) return { value: null };
 	if (!(part instanceof File))
-		return { dataUrl: null, error: err(400, 'invalid_image', 'Part "image" must be a file.') };
-	if (part.size === 0) return { dataUrl: null };
+		return { value: null, error: err(400, 'invalid_image', 'Part "image" must be a file.') };
+	if (part.size === 0) return { value: null };
 	if (part.size > config.maxUploadBytes)
 		return {
-			dataUrl: null,
+			value: null,
 			error: err(413, 'image_too_large', `Image exceeds the ${config.maxUploadBytes} byte limit.`)
 		};
 	if (!ALLOWED_IMAGE_TYPES.has(part.type))
 		return {
-			dataUrl: null,
+			value: null,
 			error: err(415, 'unsupported_image_type', 'Use image/jpeg, image/png or image/webp.')
 		};
 
 	const bytes = new Uint8Array(await part.arrayBuffer());
 	if (sniffImageType(bytes) !== part.type)
 		return {
-			dataUrl: null,
+			value: null,
 			error: err(415, 'unsupported_image_type', 'Declared type does not match content.')
 		};
 
-	return { dataUrl: `data:${part.type};base64,${Buffer.from(bytes).toString('base64')}` };
+	return { value: { bytes, type: part.type } };
 }
 
 /**
@@ -94,7 +94,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	try {
 		const pdf = await getPdfRenderer().render(
-			{ pages, imageDataUrl: image.dataUrl },
+			{ pages, image: image.value },
 			{ id: locals.id, scope: options.scope }
 		);
 		// Copy into a plain ArrayBuffer view: puppeteer's Uint8Array is not a structural BodyInit.
