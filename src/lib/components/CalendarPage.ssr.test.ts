@@ -227,6 +227,14 @@ describe('task list', () => {
 		expect(right).not.toContain(EMPTY_IF);
 	});
 
+	it('keeps 14 list rows beside a six-row month', () => {
+		const html = body({ year: 2026, month: 7, taskList: 'right' });
+		expect(countOf(html, DAY_BOX)).toBe(42);
+		expect(html).toContain('grid-template-rows:auto repeat(6,1fr)');
+		expect(html).toContain('grid-template-rows:repeat(14,1fr)');
+		expect(countOf(html, 'border-radius:3px')).toBe(14);
+	});
+
 	it('renders a custom heading as escaped text', () => {
 		const html = body({ taskList: 'right', taskListTitle: '<b>Inköp</b>' });
 		expect(html).toContain('&lt;b>Inköp&lt;/b>');

@@ -1580,6 +1580,11 @@ opacity:88, showHolidays:true, title:'', imageZoom:1, imageX:50, imageY:50, pape
 26. With `taskList:'right', taskListTitle:'<b>Inköp</b>'`: `body` contains the escaped
     `&lt;b>Inköp&lt;/b>` and no `<b>`.
 27. Snapshots of the full `body` for `{...FIXTURE, taskList:'left'}` and `'right'`.
+28. With the list on in a six-row month (`{...FIXTURE, year:2026, month:7, taskList:'right'}`, August 2026): 42 day
+    boxes, `grid-template-rows:auto repeat(6,1fr)` on the day grid, and still 14 list rows and 14 checkboxes — the list's
+    height does not depend on the week count. Real-Chromium geometry for the same month, list left and right
+    (`renderer.integration.test.ts`): the panel's bottom equals the day grid's bottom, the grid's bottom is inside
+    the page box, and the heading pill's top and height equal the first weekday pill's, within 0.5 px.
 
 ---
 
