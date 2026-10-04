@@ -16,7 +16,9 @@ const FIXTURE: CalendarOptions = {
 	imageZoom: 1,
 	imageX: 50,
 	imageY: 50,
-	paperSize: 'A4'
+	paperSize: 'A4',
+	taskList: 'off',
+	taskListTitle: ''
 };
 
 const body = (options: Partial<CalendarOptions> = {}, imageCss?: string): string =>
@@ -172,8 +174,69 @@ describe('background layer geometry', () => {
 	});
 });
 
+/** What Svelte's server renderer leaves for an `{#if}` whose condition is false (SPEC §5.2). */
+const EMPTY_IF = '<!--[-1--><!--]-->';
+
+describe('task list', () => {
+	const sectionStyle = (html: string) => /<section[^>]*\sstyle="([^"]*)"/.exec(html)?.[1];
+	const headerStyle = (html: string) => /<header[^>]*\sstyle="([^"]*)"/.exec(html)?.[1];
+	const right = body({ taskList: 'right' });
+
+	it('leaves only one empty block marker behind when off', () => {
+		expect(countOf(body(), EMPTY_IF)).toBe(1);
+		expect(body()).not.toContain('Att göra');
+	});
+
+	it('adds a 50 mm column on the right, with the header spanning both', () => {
+		expect(sectionStyle(right)?.endsWith(';grid-template-columns:1fr 50mm')).toBe(true);
+		expect(headerStyle(right)?.endsWith(';grid-column:1/-1')).toBe(true);
+		expect(right).toContain('grid-template-rows:auto repeat(5,1fr);grid-row:2;grid-column:1');
+		expect(right).toContain('position:relative;grid-row:2;grid-column:2;display:grid');
+	});
+
+	it('adds a 50 mm column on the left, with the grid moved to the second column', () => {
+		const left = body({ taskList: 'left' });
+		expect(sectionStyle(left)?.endsWith(';grid-template-columns:50mm 1fr')).toBe(true);
+		expect(left).toContain('grid-template-rows:auto repeat(5,1fr);grid-row:2;grid-column:2');
+		expect(left).toContain('position:relative;grid-row:2;grid-column:1;display:grid');
+	});
+
+	it('renders the default heading, fourteen ruled rows and fourteen checkboxes', () => {
+		expect(right).toContain('>Att göra<');
+		expect(right).toContain('grid-template-rows:repeat(14,1fr)');
+		expect(right).toContain(
+			'border:1.5px solid rgba(255,255,255,0.55);border-radius:16px;background:rgba(249,244,237,0.88)'
+		);
+		expect(countOf(right, 'border-radius:3px')).toBe(14);
+		expect(countOf(right, 'border-top:1px solid #a19786')).toBe(13);
+		expect(countOf(right, 'border-top:none')).toBe(1);
+	});
+
+	it('keeps all 35 day boxes and puts the list after the grid', () => {
+		expect(countOf(right, DAY_BOX)).toBe(35);
+		expect(right.indexOf('>Att göra<')).toBeGreaterThan(right.indexOf('Söndag'));
+		expect(right).not.toContain(EMPTY_IF);
+	});
+
+	it('renders a custom heading as escaped text', () => {
+		const html = body({ taskList: 'right', taskListTitle: '<b>Inköp</b>' });
+		expect(html).toContain('&lt;b>Inköp&lt;/b>');
+		expect(html).not.toContain('<b>');
+	});
+});
+
 describe('regression snapshot', () => {
 	it('matches the reviewed body for the fixture', () => {
-		expect(body()).toMatchSnapshot();
+		// The task list's {#if} cannot render zero bytes when false (SPEC §5.2); every other byte
+		// of the page must be what it was before the feature existed, so the pre-feature snapshot
+		// is compared with that one marker removed.
+		expect(body().replace(EMPTY_IF, '')).toMatchSnapshot();
 	});
+
+	it.each(['left', 'right'] as const)(
+		'matches the reviewed body with the list on the %s',
+		(taskList) => {
+			expect(body({ taskList })).toMatchSnapshot();
+		}
+	);
 });

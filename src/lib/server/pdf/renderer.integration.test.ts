@@ -230,4 +230,19 @@ describe.skipIf(!exe)('pdf integration (real Chromium)', () => {
 			expect(scaleOf(a3) / scaleOf(a4)).toBeCloseTo(1.414, 3);
 		});
 	});
+
+	describe('task list', () => {
+		it('keeps a month with the list on the right to one page', async () => {
+			const bytes = await renderer.render({ pages: [month({ taskList: 'right' })], image: null });
+			expect(pageCount(bytes)).toBe(1);
+		});
+
+		it('keeps a year with the list on the right to exactly twelve pages', async () => {
+			const bytes = await renderer.render({
+				pages: yearPages(month({ taskList: 'right' })),
+				image: null
+			});
+			expect(pageCount(bytes)).toBe(12);
+		});
+	});
 });

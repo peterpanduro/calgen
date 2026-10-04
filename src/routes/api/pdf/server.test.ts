@@ -83,6 +83,19 @@ describe('happy path', () => {
 		);
 	});
 
+	it('accepts a payload omitting the task-list fields', async () => {
+		const { taskList: _t, taskListTitle: _h, ...withoutTaskList } = monthRequest;
+		const res = await post(form(withoutTaskList));
+		expect(res.status).toBe(200);
+		expect(render.mock.calls[0][0].pages[0]).toMatchObject({ taskList: 'off', taskListTitle: '' });
+	});
+
+	it('keeps the task list and its heading on every page of a year export', async () => {
+		await post(form({ ...yearRequest, taskList: 'left', taskListTitle: 'Inköp' }));
+		const pages = render.mock.calls[0][0].pages;
+		expect(pages.every((p) => p.taskList === 'left' && p.taskListTitle === 'Inköp')).toBe(true);
+	});
+
 	it('appends -a3 to the month filename', async () => {
 		const res = await post(form({ ...monthRequest, paperSize: 'A3' }));
 		expect(res.headers.get('content-disposition')).toBe(
@@ -164,6 +177,8 @@ describe('request validation', () => {
 		[{ showHolidays: 'x' }, 'invalid_show_holidays'],
 		[{ title: 42 }, 'invalid_title'],
 		[{ paperSize: 'A5' }, 'invalid_paper_size'],
+		[{ taskList: 'top' }, 'invalid_task_list'],
+		[{ taskListTitle: 'x'.repeat(41) }, 'invalid_task_list_title'],
 		[{ scope: 'week' }, 'invalid_scope']
 	])('rejects %j with 400 %s', async (patch, code) => {
 		const res = await post(form({ ...monthRequest, ...patch }));
