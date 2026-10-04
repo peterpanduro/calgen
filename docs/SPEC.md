@@ -1313,7 +1313,7 @@ Content: `{taskList.title}`, by text interpolation only.
 Panel — a current-month day box's tokens (border, radius, fill), split into 14 equal rows:
 
 ```
-display:grid;grid-template-rows:repeat(14,1fr);min-height:0;padding:2px 12px;
+display:grid;grid-template-rows:repeat({taskList.rowBorders.length},1fr);min-height:0;padding:2px 12px;
 box-sizing:border-box;border:1.5px solid rgba(255,255,255,0.55);border-radius:16px;
 background:{taskList.background}
 ```
@@ -1337,9 +1337,11 @@ border-radius:3px
 **`taskList: 'off'` and the pre-feature markup.** Every style attribute is byte-identical to
 the pre-feature page when the list is off — the `layout` suffixes are `''`. The one byte-level
 difference is unavoidable: Svelte 5's server renderer emits a hydration marker for every
-`{#if}`, true or false, so the false branch leaves an empty `<!--[-1--><!--]-->` before
-`</section>`. It is an HTML comment — no box, no layout, nothing printed — and §5.5's snapshot
-assertion removes exactly that one marker before comparing against the pre-feature snapshot.
+`{#if}`, true or false, so the false branch leaves `' <!--[-1--><!--]-->'` (the whitespace
+separator before the block, then an empty marker pair) before `</section>`. A space between
+block-level siblings and an HTML comment produce no box, no layout and nothing printed, and
+§5.5's snapshot assertion removes exactly that one occurrence before comparing against the
+pre-feature snapshot.
 
 ### 5.3 `headingWeight` — the one deliberate deviation
 

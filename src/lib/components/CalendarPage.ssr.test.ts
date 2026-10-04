@@ -174,8 +174,11 @@ describe('background layer geometry', () => {
 	});
 });
 
-/** What Svelte's server renderer leaves for an `{#if}` whose condition is false (SPEC §5.2). */
-const EMPTY_IF = '<!--[-1--><!--]-->';
+/**
+ * What Svelte's server renderer leaves for the task list's `{#if}` when it is false: the
+ * whitespace separator before the block, then an empty marker pair (SPEC §5.2).
+ */
+const EMPTY_IF = ' <!--[-1--><!--]-->';
 
 describe('task list', () => {
 	const sectionStyle = (html: string) => /<section[^>]*\sstyle="([^"]*)"/.exec(html)?.[1];

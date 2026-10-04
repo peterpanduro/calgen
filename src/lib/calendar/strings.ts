@@ -34,3 +34,10 @@ export function defaultTitle(year: number, month: number): string {
 export function resolveTitle(o: Pick<CalendarOptions, 'year' | 'month' | 'title'>): string {
 	return o.title.trim() || defaultTitle(o.year, o.month);
 }
+
+export const DEFAULT_TASK_LIST_TITLE = 'Att göra';
+
+/** The custom task-list heading when it holds anything but whitespace, otherwise `Att göra`. */
+export function resolveTaskListTitle(o: Pick<CalendarOptions, 'taskListTitle'>): string {
+	return o.taskListTitle.trim() || DEFAULT_TASK_LIST_TITLE;
+}
