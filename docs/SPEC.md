@@ -376,7 +376,7 @@ pure-logic layer never sees binary data.
 | `imageY`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageY ≤ 100`                     | `invalid_image_y`         |
 | `paperSize`          | absent → defaults to `'A4'`; else `'A4'` or `'A3'`                                        | `invalid_paper_size`      |
 | `taskList`           | absent → defaults to `'off'`; else `'off'`, `'left'` or `'right'`                         | `invalid_task_list`       |
-| `taskListTitle`      | absent → defaults to `''`; else `typeof === 'string'`, length ≤ 40, no control characters | `invalid_task_list_title` |
+| `taskListTitle`      | absent → defaults to `''`; else `typeof === 'string'`, length ≤ 20, no control characters | `invalid_task_list_title` |
 | `scope`              | `'month'` or `'year'`                                                                     | `invalid_scope`           |
 
 `imageZoom`/`imageX`/`imageY`/`paperSize`/`taskList`/`taskListTitle` are the only **optional**
@@ -406,8 +406,8 @@ deliberately: literal control bytes must never be pasted into this document, int
 `options.ts`, or into a test fixture. Vectors: `'Vår trädgård'` is valid; a string
 containing a literal tab (`'a\tb'`) is `invalid_title`; a 121-character string is
 `invalid_title`; `''` is valid and means “use the default title”. `taskListTitle` uses the same
-regex: `'Inköp'` is valid, `'a\tb'` and a 41-character string are `invalid_task_list_title`,
-and `''` means “use the default heading `Att göra`”. Its 40-character cap is the sidebar
+regex: `'Inköp'` is valid, `'a\tb'` and a 21-character string are `invalid_task_list_title`,
+and `''` means “use the default heading `Att göra`”. Its 20-character cap is the sidebar
 input's `maxlength` (§6.3); the column it prints in is 50 mm wide, and a heading longer than
 fits is ellipsised rather than wrapped (§5.2). The heading only ever reaches the page as Svelte
 text interpolation — never into a `style` or other attribute — so the control-character rule
@@ -1069,8 +1069,8 @@ with `-a3` appended before `.pdf` when `paperSize === 'A3'`; `scope==='year'` �
 `stripScope` output has no `scope` key (`'scope' in stripScope(req) === false`).
 
 For the task list: `taskList` `'off'`, `'left'` and `'right'` are accepted; `'Left'`, `'top'`,
-`''`, `null`, `true` are `invalid_task_list`. `taskListTitle` `''`, `'Inköp'` and a 40-character
-string are accepted; `42`, `null`, a 41-character string, `'a\tb'` and `'a\u007Fb'` are
+`''`, `null`, `true` are `invalid_task_list`. `taskListTitle` `''`, `'Inköp'` and a 20-character
+string are accepted; `42`, `null`, a 21-character string, `'a\tb'` and `'a\u007Fb'` are
 `invalid_task_list_title`. An options object with both keys omitted parses `ok: true` with
 `taskList: 'off'`, `taskListTitle: ''`. `yearPages({...,taskList:'right',taskListTitle:'Inköp'})`
 carries both across all twelve pages, and `pdfFilename` ignores them.
@@ -1769,7 +1769,7 @@ and `<span style="font-size:13px;color:#645c50;font-family:{f.body}">{f.name}</s
 `.task-list-options` is `display:grid;grid-template-columns:repeat(3,1fr);gap:8px`; the buttons
 reuse the **Pappersstorlek** `.paper` token, `aria-pressed` and `border()` helper exactly. The
 heading input is the shared text-input token, labelled `Rubrik` via `aria-label` like the title
-input, with `maxlength` 40 (`MAX_TASK_LIST_TITLE_LENGTH` from `options.ts`, the same constant
+input, with `maxlength` 20 (`MAX_TASK_LIST_TITLE_LENGTH` from `options.ts`, the same constant
 the API checks, §3.3). It is shown only while the list is on; `taskListTitle` is kept in state
 while it is hidden, so turning the list off and on again restores the heading.
 

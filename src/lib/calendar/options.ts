@@ -19,7 +19,7 @@ const fail = (code: string, message: string): ParseResult<never> => ({ ok: false
 
 const MAX_TITLE_LENGTH = 120;
 /** Shared with the sidebar input's `maxlength`, so the UI cannot send what the API rejects. */
-export const MAX_TASK_LIST_TITLE_LENGTH = 40;
+export const MAX_TASK_LIST_TITLE_LENGTH = 20;
 // Escapes written deliberately — never paste literal control bytes into this file.
 // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;

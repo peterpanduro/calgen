@@ -35,7 +35,7 @@ curl -F 'options={"year":2026,"month":8,"schemeId":"organic","fontId":"organic",
 `multipart/form-data` with a required `options` JSON part and an optional `image` part
 (`image/jpeg`, `image/png` or `image/webp`, 20 MiB max, magic-byte checked). `scope` is
 `"month"` or `"year"`. The optional `taskList` (`"off"`, `"left"`, `"right"`; default `"off"`)
-and `taskListTitle` (≤ 40 characters; default `""`, printed as `Att göra`) add the task list.
+and `taskListTitle` (≤ 20 characters; default `""`, printed as `Att göra`) add the task list.
 Errors come back as JSON `{ "error": "code", "message": "…" }` with the
 matching HTTP status. `GET /healthz` is a liveness probe and never starts a browser.
 

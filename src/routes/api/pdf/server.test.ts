@@ -178,7 +178,7 @@ describe('request validation', () => {
 		[{ title: 42 }, 'invalid_title'],
 		[{ paperSize: 'A5' }, 'invalid_paper_size'],
 		[{ taskList: 'top' }, 'invalid_task_list'],
-		[{ taskListTitle: 'x'.repeat(41) }, 'invalid_task_list_title'],
+		[{ taskListTitle: 'x'.repeat(21) }, 'invalid_task_list_title'],
 		[{ scope: 'week' }, 'invalid_scope']
 	])('rejects %j with 400 %s', async (patch, code) => {
 		const res = await post(form({ ...monthRequest, ...patch }));

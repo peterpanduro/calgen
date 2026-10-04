@@ -61,7 +61,7 @@ describe('parseCalendarOptions — accepted input', () => {
 		expect(result.ok && result.value.taskList).toBe(taskList);
 	});
 
-	it.each(['', 'Inköp', 'x'.repeat(40)])('accepts taskListTitle %j', (taskListTitle) => {
+	it.each(['', 'Inköp', 'x'.repeat(20)])('accepts taskListTitle %j', (taskListTitle) => {
 		const result = parse({ taskList: 'right', taskListTitle });
 		expect(result.ok && result.value.taskListTitle).toBe(taskListTitle);
 	});
@@ -150,7 +150,7 @@ describe('parseCalendarOptions — rejected input', () => {
 		[{ taskList: true }, 'invalid_task_list'],
 		[{ taskListTitle: 42 }, 'invalid_task_list_title'],
 		[{ taskListTitle: null }, 'invalid_task_list_title'],
-		[{ taskListTitle: 'x'.repeat(41) }, 'invalid_task_list_title'],
+		[{ taskListTitle: 'x'.repeat(21) }, 'invalid_task_list_title'],
 		// Escapes written deliberately — never paste a literal control byte.
 		[{ taskListTitle: 'a\u0009b' }, 'invalid_task_list_title'],
 		[{ taskListTitle: 'a\u007Fb' }, 'invalid_task_list_title'],
