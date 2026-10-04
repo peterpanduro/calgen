@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { FONTS } from '$lib/calendar/fonts';
+	import { MAX_TASK_LIST_TITLE_LENGTH } from '$lib/calendar/options';
 	import { PAPER_SIZES } from '$lib/calendar/paper';
 	import { SCHEMES } from '$lib/calendar/schemes';
-	import { MONTHS, defaultTitle } from '$lib/calendar/strings';
+	import { DEFAULT_TASK_LIST_TITLE, MONTHS, defaultTitle } from '$lib/calendar/strings';
 	import {
 		DEFAULT_OPTIONS,
 		type FontId,
 		type PaperSizeId,
-		type SchemeId
+		type SchemeId,
+		type TaskListPosition
 	} from '$lib/calendar/types';
 	import {
 		clearImage,
@@ -66,6 +68,12 @@
 	}
 
 	const border = (selected: boolean) => (selected ? '#c67139' : '#dcd3c4');
+
+	const TASK_LIST_CHOICES: readonly { id: TaskListPosition; name: string }[] = [
+		{ id: 'off', name: 'Av' },
+		{ id: 'left', name: 'Vänster' },
+		{ id: 'right', name: 'Höger' }
+	];
 </script>
 
 <aside>
@@ -187,6 +195,32 @@
 				</button>
 			{/each}
 		</div>
+	</section>
+
+	<section>
+		<h2>Att göra-lista</h2>
+		<div class="task-list-options">
+			{#each TASK_LIST_CHOICES as choice (choice.id)}
+				<button
+					type="button"
+					class="paper"
+					aria-pressed={app.taskList === choice.id}
+					style="border-color:{border(app.taskList === choice.id)}"
+					onclick={() => (app.taskList = choice.id)}
+				>
+					<span>{choice.name}</span>
+				</button>
+			{/each}
+		</div>
+		{#if app.taskList !== 'off'}
+			<input
+				type="text"
+				aria-label="Rubrik"
+				placeholder={DEFAULT_TASK_LIST_TITLE}
+				maxlength={MAX_TASK_LIST_TITLE_LENGTH}
+				bind:value={app.taskListTitle}
+			/>
+		{/if}
 	</section>
 
 	<section>
@@ -394,6 +428,11 @@
 		color: #201e1d;
 		text-align: left;
 		border: 2px solid #dcd3c4;
+	}
+	.task-list-options {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 8px;
 	}
 	.paper-list {
 		display: grid;
