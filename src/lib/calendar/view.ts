@@ -90,12 +90,15 @@ function backgroundOf(zoom: number, x: number, y: number): ViewBackground {
 
 export const TASK_LIST_ROWS = 14;
 
+/** Width of the task-list column (SPEC §4.9). */
+export const TASK_LIST_WIDTH = '50mm';
+
 const NO_LAYOUT: ViewLayout = { section: '', header: '', grid: '' };
 
-/** Column tracks and grid placements per side; the list column is 50 mm wide. */
+/** Column tracks and grid placements per side; the list column is `TASK_LIST_WIDTH` wide. */
 const TASK_LIST_SIDES = {
-	left: { columns: '50mm 1fr', grid: 2, list: 1 },
-	right: { columns: '1fr 50mm', grid: 1, list: 2 }
+	left: { columns: `${TASK_LIST_WIDTH} 1fr`, grid: 2, list: 1 },
+	right: { columns: `1fr ${TASK_LIST_WIDTH}`, grid: 1, list: 2 }
 } as const;
 
 /**

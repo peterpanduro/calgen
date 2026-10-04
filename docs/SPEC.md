@@ -994,7 +994,7 @@ Task-list layout (`op` as above, `line = scheme.otherFg`):
 
 `taskList.background = rgba(scheme.cell, alpha(op))` — exactly a weekday current-month box, so
 the box-coverage slider governs the panel too. `rowBorders[0] = 'none'`, every later entry
-`1px solid {line}`, so the rules sit _between_ rows. `TASK_LIST_ROWS = 14`.
+`1px solid {line}`, so the rules sit _between_ rows. `TASK_LIST_ROWS = 14`. The column width is the named constant `TASK_LIST_WIDTH = '50mm'`, next to it; the strings above are built from it.
 
 The suffixes are empty strings, not omitted attributes, so with `taskList: 'off'` every style
 attribute serialises to the same bytes as before the feature existed. The root grid gains a
