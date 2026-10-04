@@ -98,9 +98,9 @@
 					.taskList.background}"
 			>
 				{#each view.taskList.rowBorders as border, i (i)}
-					<div style="display:flex;align-items:center;gap:8px;min-height:0;border-top:{border}">
+					<div style="display:flex;align-items:flex-end;gap:8px;min-height:0;border-top:{border}">
 						<span
-							style="width:12px;height:12px;flex:none;box-sizing:border-box;border:1.5px solid {view
+							style="width:12px;height:12px;flex:none;box-sizing:border-box;margin-bottom:4px;border:1.5px solid {view
 								.taskList.line};border-radius:3px"
 						></span>
 					</div>

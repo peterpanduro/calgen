@@ -1324,15 +1324,18 @@ does not pick the panel up.)
 Row (×14, one per `taskList.rowBorders` entry):
 
 ```
-display:flex;align-items:center;gap:8px;min-height:0;border-top:{border}
+display:flex;align-items:flex-end;gap:8px;min-height:0;border-top:{border}
 ```
 
 Checkbox (one per row, empty):
 
 ```
-width:12px;height:12px;flex:none;box-sizing:border-box;border:1.5px solid {taskList.line};
-border-radius:3px
+width:12px;height:12px;flex:none;box-sizing:border-box;margin-bottom:4px;
+border:1.5px solid {taskList.line};border-radius:3px
 ```
+
+The row is bottom-aligned (`align-items:flex-end`) and the box carries `margin-bottom:4px`, so it
+sits just above the next row's rule: handwriting on that rule reads as a line started by a box.
 
 **`taskList: 'off'` and the pre-feature markup.** Every style attribute is byte-identical to
 the pre-feature page when the list is off — the `layout` suffixes are `''`. The one byte-level

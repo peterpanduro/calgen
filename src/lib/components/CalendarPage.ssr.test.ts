@@ -211,6 +211,12 @@ describe('task list', () => {
 			'border:1.5px solid rgba(255,255,255,0.55);border-radius:16px;background:rgba(249,244,237,0.88)'
 		);
 		expect(countOf(right, 'border-radius:3px')).toBe(14);
+		expect(
+			countOf(right, 'display:flex;align-items:flex-end;gap:8px;min-height:0;border-top:')
+		).toBe(14);
+		expect(countOf(right, 'flex:none;box-sizing:border-box;margin-bottom:4px;border:1.5px')).toBe(
+			14
+		);
 		expect(countOf(right, 'border-top:1px solid #a19786')).toBe(13);
 		expect(countOf(right, 'border-top:none')).toBe(1);
 	});
