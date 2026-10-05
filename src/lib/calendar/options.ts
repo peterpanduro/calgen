@@ -3,12 +3,14 @@ import { PAPER_SIZES } from './paper';
 import { SCHEMES } from './schemes';
 import {
 	DEFAULT_OPTIONS,
+	TASK_LIST_POSITIONS,
 	type CalendarOptions,
 	type ExportRequest,
 	type ExportScope,
 	type FontId,
 	type PaperSizeId,
-	type SchemeId
+	type SchemeId,
+	type TaskListPosition
 } from './types';
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; code: string; message: string };
@@ -16,6 +18,8 @@ export type ParseResult<T> = { ok: true; value: T } | { ok: false; code: string;
 const fail = (code: string, message: string): ParseResult<never> => ({ ok: false, code, message });
 
 const MAX_TITLE_LENGTH = 120;
+/** Shared with the sidebar input's `maxlength`, so the UI cannot send what the API rejects. */
+export const MAX_TASK_LIST_TITLE_LENGTH = 20;
 // Escapes written deliberately — never paste literal control bytes into this file.
 // eslint-disable-next-line no-control-regex -- rejecting control characters is the point
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
@@ -23,6 +27,7 @@ const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 const SCHEME_IDS: ReadonlySet<string> = new Set(SCHEMES.map((s) => s.id));
 const FONT_IDS: ReadonlySet<string> = new Set(FONTS.map((f) => f.id));
 const PAPER_SIZE_IDS: ReadonlySet<string> = new Set(PAPER_SIZES.map((p) => p.id));
+const TASK_LIST_IDS: ReadonlySet<unknown> = new Set(TASK_LIST_POSITIONS);
 
 const isIntBetween = (v: unknown, lo: number, hi: number): v is number =>
 	typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
@@ -32,6 +37,9 @@ const isIntBetween = (v: unknown, lo: number, hi: number): v is number =>
 // serialise into the style string as `left:NaN%` and be dropped silently by the browser.
 const isFiniteBetween = (v: unknown, lo: number, hi: number): v is number =>
 	typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi;
+
+const isPlainText = (v: unknown, max: number): v is string =>
+	typeof v === 'string' && v.length <= max && !CONTROL_CHARS.test(v);
 
 /**
  * Validates an untrusted payload into an {@link ExportRequest}.
@@ -57,11 +65,7 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 		return fail('invalid_opacity', 'Field "opacity" must be an integer between 30 and 100.');
 	if (typeof o.showHolidays !== 'boolean')
 		return fail('invalid_show_holidays', 'Field "showHolidays" must be a boolean.');
-	if (
-		typeof o.title !== 'string' ||
-		o.title.length > MAX_TITLE_LENGTH ||
-		CONTROL_CHARS.test(o.title)
-	)
+	if (!isPlainText(o.title, MAX_TITLE_LENGTH))
 		return fail(
 			'invalid_title',
 			`Field "title" must be a string of at most ${MAX_TITLE_LENGTH} characters with no control characters.`
@@ -85,6 +89,17 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 	const paperSize = o.paperSize === undefined ? DEFAULT_OPTIONS.paperSize : o.paperSize;
 	if (typeof paperSize !== 'string' || !PAPER_SIZE_IDS.has(paperSize))
 		return fail('invalid_paper_size', 'Field "paperSize" must be "A4" or "A3".');
+	// Optional for the same reason: an old client never sent these, and must keep its page.
+	const taskList = o.taskList === undefined ? DEFAULT_OPTIONS.taskList : o.taskList;
+	const taskListTitle =
+		o.taskListTitle === undefined ? DEFAULT_OPTIONS.taskListTitle : o.taskListTitle;
+	if (!TASK_LIST_IDS.has(taskList))
+		return fail('invalid_task_list', 'Field "taskList" must be "off", "left" or "right".');
+	if (!isPlainText(taskListTitle, MAX_TASK_LIST_TITLE_LENGTH))
+		return fail(
+			'invalid_task_list_title',
+			`Field "taskListTitle" must be a string of at most ${MAX_TASK_LIST_TITLE_LENGTH} characters with no control characters.`
+		);
 	if (o.scope !== 'month' && o.scope !== 'year')
 		return fail('invalid_scope', 'Field "scope" must be "month" or "year".');
 
@@ -102,6 +117,8 @@ export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>
 			imageX,
 			imageY,
 			paperSize: paperSize as PaperSizeId,
+			taskList: taskList as TaskListPosition,
+			taskListTitle,
 			scope: o.scope as ExportScope
 		}
 	};
@@ -115,7 +132,8 @@ export function stripScope(o: ExportRequest): CalendarOptions {
 
 /**
  * The twelve pages of a year export. The custom title is dropped from every page so each one
- * keeps its month label (SPEC §14.3).
+ * keeps its month label (SPEC §14.3); the task list and its heading are not month-specific and
+ * carry across.
  */
 export function yearPages(o: CalendarOptions | ExportRequest): CalendarOptions[] {
 	const base = stripScope({ ...o, scope: 'month', title: '' });

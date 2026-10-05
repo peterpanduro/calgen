@@ -2,7 +2,7 @@ import { pct, rgba } from './css';
 import { getFont, type FontPairing } from './fonts';
 import { buildGrid } from './grid';
 import { getScheme, type Scheme } from './schemes';
-import { DAY_NAMES, resolveTitle } from './strings';
+import { DAY_NAMES, resolveTaskListTitle, resolveTitle } from './strings';
 import type { CalendarOptions } from './types';
 
 export interface ViewCell {
@@ -32,6 +32,30 @@ export interface ViewBackground {
 	position: string;
 }
 
+/** The handwriting task list beside the day grid (SPEC §4.9, §5.2). */
+export interface ViewTaskList {
+	/** Resolved heading, e.g. `'Att göra'`. */
+	title: string;
+	/** Grid placement of the list column, e.g. `'grid-row:2;grid-column:1'`. */
+	placement: string;
+	/** Panel fill — the current-month day-box colour, e.g. `'rgba(249,244,237,0.88)'`. */
+	background: string;
+	/** Colour of the row rules and the checkbox outlines. */
+	line: string;
+	/** `border-top` per row: `'none'` for the first, `'1px solid {line}'` after. */
+	rowBorders: string[];
+}
+
+/** Style suffixes that make room for the task list; every one is `''` when it is off. */
+export interface ViewLayout {
+	/** Appended to the root `<section>` style. */
+	section: string;
+	/** Appended to the `<header>` style. */
+	header: string;
+	/** Appended to the day-grid style. */
+	grid: string;
+}
+
 export interface CalendarView {
 	title: string;
 	rows: number;
@@ -42,6 +66,9 @@ export interface CalendarView {
 	scheme: Scheme;
 	font: FontPairing;
 	background: ViewBackground;
+	layout: ViewLayout;
+	/** `null` when `taskList === 'off'`. */
+	taskList: ViewTaskList | null;
 }
 
 /**
@@ -58,6 +85,49 @@ function backgroundOf(zoom: number, x: number, y: number): ViewBackground {
 		top: pct((1 - zoom) * y),
 		size: pct(zoom * 100),
 		position: `${pct(x)} ${pct(y)}`
+	};
+}
+
+export const TASK_LIST_ROWS = 14;
+
+/** Width of the task-list column (SPEC §4.9). */
+export const TASK_LIST_WIDTH = '50mm';
+
+const NO_LAYOUT: ViewLayout = { section: '', header: '', grid: '' };
+
+/** Column tracks and grid placements per side; the list column is `TASK_LIST_WIDTH` wide. */
+const TASK_LIST_SIDES = {
+	left: { columns: `${TASK_LIST_WIDTH} 1fr`, grid: 2, list: 1 },
+	right: { columns: `1fr ${TASK_LIST_WIDTH}`, grid: 1, list: 2 }
+} as const;
+
+/**
+ * The task list and the layout that makes room for it. With the list off the layout suffixes
+ * are empty, so every style attribute serialises exactly as it did before the feature.
+ */
+function taskListOf(
+	o: CalendarOptions,
+	scheme: Scheme,
+	op: number
+): { layout: ViewLayout; taskList: ViewTaskList | null } {
+	if (o.taskList === 'off') return { layout: NO_LAYOUT, taskList: null };
+	const side = TASK_LIST_SIDES[o.taskList];
+	const line = scheme.otherFg;
+	return {
+		layout: {
+			section: `;grid-template-columns:${side.columns}`,
+			header: ';grid-column:1/-1',
+			grid: `;grid-row:2;grid-column:${side.grid};min-width:0`
+		},
+		taskList: {
+			title: resolveTaskListTitle(o),
+			placement: `grid-row:2;grid-column:${side.list}`,
+			background: rgba(scheme.cell, op),
+			line,
+			rowBorders: Array.from({ length: TASK_LIST_ROWS }, (_, i) =>
+				i === 0 ? 'none' : `1px solid ${line}`
+			)
+		}
 	};
 }
 
@@ -109,6 +179,7 @@ export function buildCalendarView(o: CalendarOptions): CalendarView {
 		dayNames: DAY_NAMES,
 		scheme,
 		font,
-		background: backgroundOf(o.imageZoom, o.imageX, o.imageY)
+		background: backgroundOf(o.imageZoom, o.imageX, o.imageY),
+		...taskListOf(o, scheme, op)
 	};
 }

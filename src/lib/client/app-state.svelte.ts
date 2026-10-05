@@ -45,7 +45,9 @@ export function toOptions(state: AppState): CalendarOptions {
 		imageZoom: state.imageZoom,
 		imageX: state.imageX,
 		imageY: state.imageY,
-		paperSize: state.paperSize
+		paperSize: state.paperSize,
+		taskList: state.taskList,
+		taskListTitle: state.taskListTitle
 	};
 }
 

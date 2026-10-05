@@ -290,7 +290,14 @@ export interface CalendarOptions {
 	imageY: number;
 	/** Paper size. `'A4'` (default) or `'A3'`; A3 is the same layout scaled (§4.11). */
 	paperSize: PaperSizeId;
+	/** Where the handwriting task list sits beside the day grid; `'off'` (default) omits it. */
+	taskList: TaskListPosition;
+	/** Task-list heading. Empty string means "use the default `Att göra`" (§4.5). */
+	taskListTitle: string;
 }
+
+export const TASK_LIST_POSITIONS = ['off', 'left', 'right'] as const;
+export type TaskListPosition = (typeof TASK_LIST_POSITIONS)[number];
 
 export const DEFAULT_OPTIONS: CalendarOptions = {
 	year: 2026,
@@ -303,7 +310,9 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 	imageZoom: 1,
 	imageX: 50,
 	imageY: 50,
-	paperSize: 'A4'
+	paperSize: 'A4',
+	taskList: 'off',
+	taskListTitle: ''
 };
 ```
 
@@ -312,9 +321,10 @@ chosen; there is no `null` state and no optionality to branch on in the UI. They
 background layer's geometry, which the page emits unconditionally (§5.2) — with
 `background-image:none` the values are simply invisible.
 
-On the wire, though, four fields are **optional**: `parseCalendarOptions` (§3.3) defaults each
+On the wire, though, six fields are **optional**: `parseCalendarOptions` (§3.3) defaults each
 one from `DEFAULT_OPTIONS` (`imageZoom: 1`, `imageX: 50`, `imageY: 50` — plain `cover`/
-`center`; `paperSize: 'A4'`) when its key is absent from the payload. This is a
+`center`; `paperSize: 'A4'`; `taskList: 'off'`, `taskListTitle: ''`) when its key is absent
+from the payload. This is a
 backward-compatibility carve-out for the public API: a pre-feature caller's request has no
 reason to know about these fields, and omitting them must keep producing the pre-feature
 rendering rather than a `400`. A field that is present, `null` included, is still validated
@@ -327,6 +337,11 @@ nothing to move and the value has no effect — the same as in CSS.
 
 The whole-year export uses one transform for all twelve pages: `yearPages` carries the three
 fields across unchanged, exactly as it does with scheme, font and opacity (§14.3).
+
+The task list (§5.2) is an optional column of blank ruled rows, each with an empty checkbox,
+printed beside the day grid for handwriting. `taskList` picks its side (`'left'` or `'right'`)
+or omits it (`'off'`). Unlike `title`, `taskListTitle` is not month-specific, so `yearPages`
+carries both task-list fields across all twelve pages unchanged.
 
 ### 3.2 Export request
 
@@ -346,27 +361,30 @@ pure-logic layer never sees binary data.
 `parseCalendarOptions(input: unknown): ParseResult<ExportRequest>` in
 `src/lib/calendar/options.ts` — pure, no throwing, returns a discriminated union.
 
-| Field                | Rule                                                                   | Error code on failure   |
-| -------------------- | ---------------------------------------------------------------------- | ----------------------- |
-| _(the input itself)_ | must be a non-null, non-array `object`                                 | `invalid_options`       |
-| `year`               | `Number.isInteger`, `2000 ≤ year ≤ 2100`                               | `invalid_year`          |
-| `month`              | `Number.isInteger`, `0 ≤ month ≤ 11`                                   | `invalid_month`         |
-| `schemeId`           | one of the six ids                                                     | `invalid_scheme`        |
-| `fontId`             | one of the four ids                                                    | `invalid_font`          |
-| `opacity`            | `Number.isInteger`, `30 ≤ opacity ≤ 100`                               | `invalid_opacity`       |
-| `showHolidays`       | `typeof === 'boolean'`                                                 | `invalid_show_holidays` |
-| `title`              | `typeof === 'string'`, length ≤ 120, no control characters (see below) | `invalid_title`         |
-| `imageZoom`          | absent → defaults to `1`; else `Number.isFinite`, `1 ≤ imageZoom ≤ 4`  | `invalid_image_zoom`    |
-| `imageX`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageX ≤ 100`  | `invalid_image_x`       |
-| `imageY`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageY ≤ 100`  | `invalid_image_y`       |
-| `paperSize`          | absent → defaults to `'A4'`; else `'A4'` or `'A3'`                     | `invalid_paper_size`    |
-| `scope`              | `'month'` or `'year'`                                                  | `invalid_scope`         |
+| Field                | Rule                                                                                      | Error code on failure     |
+| -------------------- | ----------------------------------------------------------------------------------------- | ------------------------- |
+| _(the input itself)_ | must be a non-null, non-array `object`                                                    | `invalid_options`         |
+| `year`               | `Number.isInteger`, `2000 ≤ year ≤ 2100`                                                  | `invalid_year`            |
+| `month`              | `Number.isInteger`, `0 ≤ month ≤ 11`                                                      | `invalid_month`           |
+| `schemeId`           | one of the six ids                                                                        | `invalid_scheme`          |
+| `fontId`             | one of the four ids                                                                       | `invalid_font`            |
+| `opacity`            | `Number.isInteger`, `30 ≤ opacity ≤ 100`                                                  | `invalid_opacity`         |
+| `showHolidays`       | `typeof === 'boolean'`                                                                    | `invalid_show_holidays`   |
+| `title`              | `typeof === 'string'`, length ≤ 120, no control characters (see below)                    | `invalid_title`           |
+| `imageZoom`          | absent → defaults to `1`; else `Number.isFinite`, `1 ≤ imageZoom ≤ 4`                     | `invalid_image_zoom`      |
+| `imageX`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageX ≤ 100`                     | `invalid_image_x`         |
+| `imageY`             | absent → defaults to `50`; else `Number.isFinite`, `0 ≤ imageY ≤ 100`                     | `invalid_image_y`         |
+| `paperSize`          | absent → defaults to `'A4'`; else `'A4'` or `'A3'`                                        | `invalid_paper_size`      |
+| `taskList`           | absent → defaults to `'off'`; else `'off'`, `'left'` or `'right'`                         | `invalid_task_list`       |
+| `taskListTitle`      | absent → defaults to `''`; else `typeof === 'string'`, length ≤ 20, no control characters | `invalid_task_list_title` |
+| `scope`              | `'month'` or `'year'`                                                                     | `invalid_scope`           |
 
-`imageZoom`/`imageX`/`imageY`/`paperSize` are the only **optional** fields: a missing key
-defaults from `DEFAULT_OPTIONS` (§3.1) instead of failing. Optionality is keyed on the key
+`imageZoom`/`imageX`/`imageY`/`paperSize`/`taskList`/`taskListTitle` are the only **optional**
+fields: a missing key defaults from `DEFAULT_OPTIONS` (§3.1) instead of failing. Optionality is keyed on the key
 being absent (`o.imageZoom === undefined`), not on the value being falsy or nullish —
 `imageZoom: null` is **present** and fails `invalid_image_zoom` exactly like `imageZoom: '2'`
-would; likewise `paperSize: null` fails `invalid_paper_size`. This keeps the public API
+would; likewise `paperSize: null` fails `invalid_paper_size`, `taskList: null` fails
+`invalid_task_list` and `taskListTitle: null` fails `invalid_task_list_title`. This keeps the public API
 backward compatible: a request built before this feature existed, which never had a reason to
 send these fields, still renders — with the pre-feature `cover`/`center` geometry and A4 paper
 — instead of getting a `400`. Every other field remains required with no default.
@@ -387,7 +405,13 @@ The control-character rule is the regex `/[\u0000-\u001F\u007F]/`, written with 
 deliberately: literal control bytes must never be pasted into this document, into
 `options.ts`, or into a test fixture. Vectors: `'Vår trädgård'` is valid; a string
 containing a literal tab (`'a\tb'`) is `invalid_title`; a 121-character string is
-`invalid_title`; `''` is valid and means “use the default title”.
+`invalid_title`; `''` is valid and means “use the default title”. `taskListTitle` uses the same
+regex: `'Inköp'` is valid, `'a\tb'` and a 21-character string are `invalid_task_list_title`,
+and `''` means “use the default heading `Att göra`”. Its 20-character cap is the sidebar
+input's `maxlength` (§6.3); the column it prints in is 50 mm wide, and a heading longer than
+fits is ellipsised rather than wrapped (§5.2). The heading only ever reaches the page as Svelte
+text interpolation — never into a `style` or other attribute — so the control-character rule
+is the whole of its validation.
 
 `parseCalendarOptions` **clamps nothing** — the API rejects out-of-range values. The _UI_
 clamps (year input clamps to 2000–2100 as the prototype does) so the API never sees them.
@@ -413,19 +437,19 @@ All API errors are `application/json` with the shape:
 Swedish toast via the table in `src/lib/client/errors.ts` (§6.6). Unknown codes fall back to
 `"Något gick fel. Försök igen."`.
 
-| Code                                                                                                                                                                                                                                                           | Status |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `unsupported_media_type` (request not multipart)                                                                                                                                                                                                               | 415    |
-| `missing_options`                                                                                                                                                                                                                                              | 400    |
-| `invalid_json`                                                                                                                                                                                                                                                 | 400    |
-| `invalid_options` (payload is not an object)                                                                                                                                                                                                                   | 400    |
-| `invalid_year` / `invalid_month` / `invalid_scheme` / `invalid_font` / `invalid_opacity` / `invalid_show_holidays` / `invalid_title` / `invalid_image_zoom` / `invalid_image_x` / `invalid_image_y` / `invalid_paper_size` / `invalid_scope` / `invalid_image` | 400    |
-| `unsupported_image_type`                                                                                                                                                                                                                                       | 415    |
-| `image_too_large`                                                                                                                                                                                                                                              | 413    |
-| `render_timeout`                                                                                                                                                                                                                                               | 504    |
-| `renderer_busy` (queue wait exceeded)                                                                                                                                                                                                                          | 503    |
-| `renderer_unavailable` (browser launch failed)                                                                                                                                                                                                                 | 503    |
-| `internal_error`                                                                                                                                                                                                                                               | 500    |
+| Code                                                                                                                                                                                                                                                                                                             | Status |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `unsupported_media_type` (request not multipart)                                                                                                                                                                                                                                                                 | 415    |
+| `missing_options`                                                                                                                                                                                                                                                                                                | 400    |
+| `invalid_json`                                                                                                                                                                                                                                                                                                   | 400    |
+| `invalid_options` (payload is not an object)                                                                                                                                                                                                                                                                     | 400    |
+| `invalid_year` / `invalid_month` / `invalid_scheme` / `invalid_font` / `invalid_opacity` / `invalid_show_holidays` / `invalid_title` / `invalid_image_zoom` / `invalid_image_x` / `invalid_image_y` / `invalid_paper_size` / `invalid_task_list` / `invalid_task_list_title` / `invalid_scope` / `invalid_image` | 400    |
+| `unsupported_image_type`                                                                                                                                                                                                                                                                                         | 415    |
+| `image_too_large`                                                                                                                                                                                                                                                                                                | 413    |
+| `render_timeout`                                                                                                                                                                                                                                                                                                 | 504    |
+| `renderer_busy` (queue wait exceeded)                                                                                                                                                                                                                                                                            | 503    |
+| `renderer_unavailable` (browser launch failed)                                                                                                                                                                                                                                                                   | 503    |
+| `internal_error`                                                                                                                                                                                                                                                                                                 | 500    |
 
 Never leak stack traces or `CHROMIUM_PATH` in the response body; log them instead.
 
@@ -681,10 +705,15 @@ export const DAY_NAMES = [
 export function defaultTitle(year: number, month: number): string;
 /** `title.trim() || defaultTitle(year, month)` — note: trim, unlike the prototype. */
 export function resolveTitle(o: Pick<CalendarOptions, 'year' | 'month' | 'title'>): string;
+export const DEFAULT_TASK_LIST_TITLE = 'Att göra';
+/** `taskListTitle.trim() || DEFAULT_TASK_LIST_TITLE` — the same rule as `resolveTitle`. */
+export function resolveTaskListTitle(o: Pick<CalendarOptions, 'taskListTitle'>): string;
 ```
 
 **Tests**: `defaultTitle(2026, 8) === 'September 2026'`; `resolveTitle({year:2026,month:8,title:''}) === 'September 2026'`;
-`resolveTitle({...,title:'   '}) === 'September 2026'`; `resolveTitle({...,title:'Vår trädgård'}) === 'Vår trädgård'`.
+`resolveTitle({...,title:'   '}) === 'September 2026'`; `resolveTitle({...,title:'Vår trädgård'}) === 'Vår trädgård'`;
+`resolveTaskListTitle({taskListTitle:''})` and `({taskListTitle:'   '})` are `'Att göra'`;
+`resolveTaskListTitle({taskListTitle:' Inköp '}) === 'Inköp'`.
 
 ### 4.6 `schemes.ts` and `fonts.ts`
 
@@ -870,6 +899,30 @@ export interface ViewBackground {
 	position: string;
 }
 
+/** The handwriting task list (§5.2). */
+export interface ViewTaskList {
+	/** Resolved heading, `resolveTaskListTitle(o)`, e.g. 'Att göra'. */
+	title: string;
+	/** Grid placement of the list column, e.g. 'grid-row:2;grid-column:1'. */
+	placement: string;
+	/** Panel fill — the current-month day-box colour, e.g. 'rgba(249,244,237,0.88)'. */
+	background: string;
+	/** Colour of the row rules and the checkbox outlines (`scheme.otherFg`). */
+	line: string;
+	/** `border-top` per row, TASK_LIST_ROWS (14) entries: 'none', then '1px solid {line}'. */
+	rowBorders: string[];
+}
+
+/** Style suffixes that make room for the task list; every one is '' when it is off. */
+export interface ViewLayout {
+	/** Appended to the root `<section>` style, e.g. ';grid-template-columns:50mm 1fr'. */
+	section: string;
+	/** Appended to the `<header>` style, e.g. ';grid-column:1/-1'. */
+	header: string;
+	/** Appended to the day-grid style, e.g. ';grid-row:2;grid-column:2;min-width:0'. */
+	grid: string;
+}
+
 export interface CalendarView {
 	title: string;
 	rows: number;
@@ -879,6 +932,9 @@ export interface CalendarView {
 	scheme: Scheme;
 	font: FontPairing;
 	background: ViewBackground;
+	layout: ViewLayout;
+	/** `null` when `taskList === 'off'`. */
+	taskList: ViewTaskList | null;
 }
 
 export function buildCalendarView(o: CalendarOptions): CalendarView;
@@ -928,6 +984,24 @@ statement with `H`, `y` and the cover height.
 The rounding lives here rather than in the component so the style string is a plain, stable,
 unit-testable value, and so preview and print are byte-identical by construction.
 
+Task-list layout (`op` as above, `line = scheme.otherFg`):
+
+| `taskList` | `layout.section`                  | `layout.header`     | `layout.grid`                           | `taskList.placement`       |
+| ---------- | --------------------------------- | ------------------- | --------------------------------------- | -------------------------- |
+| `'off'`    | `''`                              | `''`                | `''`                                    | — (`taskList` is `null`)   |
+| `'left'`   | `;grid-template-columns:50mm 1fr` | `;grid-column:1/-1` | `;grid-row:2;grid-column:2;min-width:0` | `grid-row:2;grid-column:1` |
+| `'right'`  | `;grid-template-columns:1fr 50mm` | `;grid-column:1/-1` | `;grid-row:2;grid-column:1;min-width:0` | `grid-row:2;grid-column:2` |
+
+`taskList.background = rgba(scheme.cell, alpha(op))` — exactly a weekday current-month box, so
+the box-coverage slider governs the panel too. `rowBorders[0] = 'none'`, every later entry
+`1px solid {line}`, so the rules sit _between_ rows. `TASK_LIST_ROWS = 14`. The column width is the named constant `TASK_LIST_WIDTH = '50mm'`, next to it; the strings above are built from it.
+
+The suffixes are empty strings, not omitted attributes, so with `taskList: 'off'` every style
+attribute serialises to the same bytes as before the feature existed. The root grid gains a
+second column only when the list is on; the header then spans both columns (the list sits
+_below_ the header, beside the day grid), and the day grid and list are placed explicitly on
+row 2 so the component needs a single conditional block regardless of side.
+
 The `red` flag is evaluated **after** the `otherMonth` branch, so an adjacent-month holiday
 can never be coloured red — matching the prototype, and now unreachable anyway because
 `grid.ts` blanks `holiday` for other-month cells.
@@ -959,6 +1033,13 @@ Background geometry (`view.background`):
 
 The last row is the rounding regression: unrounded, `left` would be `-12.210000000000004%`.
 
+Task list (`view.layout`, `view.taskList`): the default options give `taskList === null` and
+all three `layout` strings `''`; `'left'` and `'right'` give exactly the table above;
+`taskList.title` is `'Att göra'` for `taskListTitle: ''` and `'Inköp'` for `' Inköp '`;
+`taskList.background === 'rgba(249,244,237,0.88)'` for organic at 88 % and
+`'rgba(71,66,56,0.3)'` for natt at 30 %; `line === '#a19786'` for organic; `rowBorders` has 14
+entries, the first `'none'` and the rest `'1px solid #a19786'`.
+
 ### 4.10 `options.ts`
 
 ```ts
@@ -967,7 +1048,7 @@ export type ParseResult<T> = { ok: true; value: T } | { ok: false; code: string;
 export function parseCalendarOptions(input: unknown): ParseResult<ExportRequest>;
 /** Drops `scope`, leaving a plain CalendarOptions. Used for the single-month path. */
 export function stripScope(o: ExportRequest): CalendarOptions;
-/** 12 CalendarOptions for a year export; title forced to '' on every one. */
+/** 12 CalendarOptions for a year export; title forced to '' on every one, taskList kept. */
 export function yearPages(o: CalendarOptions | ExportRequest): CalendarOptions[];
 export function pdfFilename(o: ExportRequest): string;
 ```
@@ -986,6 +1067,13 @@ with `-a3` appended before `.pdf` when `paperSize === 'A3'`; `scope==='year'` �
 `pdfFilename({year:2026,month:8,scope:'month',paperSize:'A3'}) === 'calgen-2026-09-a3.pdf'`;
 `pdfFilename({year:2026,scope:'year',paperSize:'A3'}) === 'calgen-2026-a3.pdf'`;
 `stripScope` output has no `scope` key (`'scope' in stripScope(req) === false`).
+
+For the task list: `taskList` `'off'`, `'left'` and `'right'` are accepted; `'Left'`, `'top'`,
+`''`, `null`, `true` are `invalid_task_list`. `taskListTitle` `''`, `'Inköp'` and a 20-character
+string are accepted; `42`, `null`, a 21-character string, `'a\tb'` and `'a\u007Fb'` are
+`invalid_task_list_title`. An options object with both keys omitted parses `ok: true` with
+`taskList: 'off'`, `taskListTitle: ''`. `yearPages({...,taskList:'right',taskListTitle:'Inköp'})`
+carries both across all twelve pages, and `pdfFilename` ignores them.
 
 For the image transform specifically: `imageZoom: 1` and `imageZoom: 4` are accepted and
 `0.99` / `4.01` / `'2'` / `NaN` / `Infinity` are `invalid_image_zoom`; `imageX: 0` and
@@ -1090,10 +1178,11 @@ Root `<section>`:
 ```
 width:297mm;height:210mm;overflow:hidden;position:relative;box-sizing:border-box;
 display:grid;grid-template-rows:auto 1fr;gap:5mm;padding:30mm 10mm 10mm;
-background:{view.scheme.bg};color:{view.scheme.text};font-family:{view.font.body}
+background:{view.scheme.bg};color:{view.scheme.text};font-family:{view.font.body}{view.layout.section}
 ```
 
-This is the layout page and is identical for A4 and A3.
+This is the layout page and is identical for A4 and A3. `{view.layout.section}` and the other
+two `layout` suffixes below are `''` unless the task list is on (§4.9).
 
 Background photo layer (first child, always rendered):
 
@@ -1125,10 +1214,12 @@ replaces (§4.9). Four rules govern this element and none of them may be relaxed
 `<header>`:
 
 ```
-position:relative;display:flex;align-items:flex-end;padding-left:36px
+position:relative;display:flex;align-items:flex-end;padding-left:36px{view.layout.header}
 ```
 
-(36 px = 30 px week column + 6 px grid gap, so the title aligns with the Monday column.)
+(36 px = 30 px week column + 6 px grid gap, so the title aligns with the Monday column. With the
+task list on the left, the title keeps that 36 px and so sits over the list, not the Monday
+column: the header spans the full content width either way.)
 
 `<h1>`:
 
@@ -1142,7 +1233,7 @@ Grid container:
 
 ```
 position:relative;display:grid;grid-template-columns:30px repeat(7,1fr);gap:6px;
-min-height:0;grid-template-rows:{view.gridTemplateRows}
+min-height:0;grid-template-rows:{view.gridTemplateRows}{view.layout.grid}
 ```
 
 First grid child is an empty `<div></div>` (the week-column header spacer).
@@ -1190,6 +1281,70 @@ font-size:10px;font-weight:600;line-height:1.2;color:{cell.foreground}
 The holiday `<span>` is rendered unconditionally (empty string when there is no holiday), as
 in the prototype — the `gap:4px` and its zero height then produce the same layout as the
 prototype in both cases.
+
+**Task list** — the last child of the root, inside `{#if view.taskList}`. It is a 50 mm column
+(the root's second grid track, §4.9) beside the day grid, taken out of the existing content
+width; the page box, its padding and the photo layer are unchanged, so A3 scaling (§4.11) and
+`PreviewStage.svelte` need nothing new. With `'left'` it is the leftmost thing on the page; the
+week pills stay attached to the day grid.
+
+List column `<div>`:
+
+```
+position:relative;{taskList.placement};display:grid;grid-template-rows:auto 1fr;gap:6px;
+min-height:0;min-width:0
+```
+
+Its `auto 1fr` rows and `6px` gap mirror the day grid's first row and gap, so the list is top-
+and bottom-aligned with the grid: the heading pill is level with the day-name pills and the
+panel spans exactly the week rows.
+
+Heading pill — the day-name pill's tokens, made a block so a long heading ellipsises instead of
+widening the column:
+
+```
+display:block;padding:6px 14px;border-radius:999px;font-size:12px;font-weight:700;
+letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;overflow:hidden;
+text-overflow:ellipsis;background:{view.scheme.day};color:{view.scheme.dayFg}
+```
+
+Content: `{taskList.title}`, by text interpolation only.
+
+Panel — a current-month day box's tokens (border, radius, fill), split into 14 equal rows:
+
+```
+display:grid;grid-template-rows:repeat({taskList.rowBorders.length},1fr);min-height:0;padding:2px 12px;
+box-sizing:border-box;border:1.5px solid rgba(255,255,255,0.55);border-radius:16px;
+background:{taskList.background}
+```
+
+(`border` precedes `border-radius` here, the reverse of the day box, so the §5.5 day-box count
+does not pick the panel up.)
+
+Row (×14, one per `taskList.rowBorders` entry):
+
+```
+display:flex;align-items:flex-end;gap:8px;min-height:0;border-top:{border}
+```
+
+Checkbox (one per row, empty):
+
+```
+width:12px;height:12px;flex:none;box-sizing:border-box;margin-bottom:4px;
+border:1.5px solid {taskList.line};border-radius:3px
+```
+
+The row is bottom-aligned (`align-items:flex-end`) and the box carries `margin-bottom:4px`, so it
+sits just above the next row's rule: handwriting on that rule reads as a line started by a box.
+
+**`taskList: 'off'` and the pre-feature markup.** Every style attribute is byte-identical to
+the pre-feature page when the list is off — the `layout` suffixes are `''`. The one byte-level
+difference is unavoidable: Svelte 5's server renderer emits a hydration marker for every
+`{#if}`, true or false, so the false branch leaves `' <!--[-1--><!--]-->'` (the whitespace
+separator before the block, then an empty marker pair) before `</section>`. A space between
+block-level siblings and an HTML comment produce no box, no layout and nothing printed, and
+§5.5's snapshot assertion removes exactly that one occurrence before comparing against the
+pre-feature snapshot.
 
 ### 5.3 `headingWeight` — the one deliberate deviation
 
@@ -1410,6 +1565,26 @@ opacity:88, showHolidays:true, title:'', imageZoom:1, imageX:50, imageY:50, pape
     `overflow:hidden`, which is what clips the layer at `z > 1`.
 22. The transform is a property of the layer, not of the photo: assertions 17–20 hold with the
     default `imageCss` (`none`) as well as with `imageCss: 'var(--calgen-bg)'`.
+23. `FIXTURE` gains `taskList:'off', taskListTitle:''`. Its `body` contains the empty-`{#if}`
+    marker exactly once, and with that one occurrence removed it equals the pre-feature
+    snapshot unchanged (§5.2). It does not contain `Att göra`.
+24. With `taskList:'right'`: the root `<section>` style ends `;grid-template-columns:1fr 50mm`;
+    the header carries `;grid-column:1/-1`; the day grid carries
+    `;grid-row:2;grid-column:1;min-width:0`; `body` contains `grid-row:2;grid-column:2`,
+    `>Att göra<`, `grid-template-rows:repeat(14,1fr)`, the panel fill
+    `background:rgba(249,244,237,0.88)` after the panel border, 14 checkboxes (counting
+    `border-radius:3px`), 13 `border-top:1px solid #a19786` and one `border-top:none`; 35
+    day boxes still. The list markup comes after the day grid in source order.
+25. With `taskList:'left'`: `;grid-template-columns:50mm 1fr`, the day grid carries
+    `;grid-row:2;grid-column:2;min-width:0`, the list `grid-row:2;grid-column:1`.
+26. With `taskList:'right', taskListTitle:'<b>Inköp</b>'`: `body` contains the escaped
+    `&lt;b>Inköp&lt;/b>` and no `<b>`.
+27. Snapshots of the full `body` for `{...FIXTURE, taskList:'left'}` and `'right'`.
+28. With the list on in a six-row month (`{...FIXTURE, year:2026, month:7, taskList:'right'}`, August 2026): 42 day
+    boxes, `grid-template-rows:auto repeat(6,1fr)` on the day grid, and still 14 list rows and 14 checkboxes — the list's
+    height does not depend on the week count. Real-Chromium geometry for the same month, list left and right
+    (`renderer.integration.test.ts`): the panel's bottom equals the day grid's bottom, the grid's bottom is inside
+    the page box, and the heading pill's top and height equal the first weekday pill's, within 0.5 px.
 
 ---
 
@@ -1577,8 +1752,37 @@ border:2px solid {sel ? '#c67139' : '#dcd3c4'}` containing
 and `<span style="font-size:13px;color:#645c50;font-family:{f.body}">{f.name}</span>`.
 `aria-pressed={selected}`.
 
-**Pappersstorlek** — the last section, placed after **Typsnitt** because it is the only control
-that does not change the preview (§6.4):
+**Att göra-lista** — placed after **Typsnitt**, before **Pappersstorlek**:
+
+```
+<section>
+  <h2>Att göra-lista</h2>
+  <div class="task-list-options">
+    {#each TASK_LIST_CHOICES as choice (choice.id)}
+      <button type="button" class="paper" aria-pressed={app.taskList === choice.id}
+              style="border-color:{border(app.taskList === choice.id)}"
+              onclick={() => (app.taskList = choice.id)}>
+        <span>{choice.name}</span>
+      </button>
+    {/each}
+  </div>
+  {#if app.taskList !== 'off'}
+    <input type="text" aria-label="Rubrik" placeholder={DEFAULT_TASK_LIST_TITLE}
+           maxlength={MAX_TASK_LIST_TITLE_LENGTH} bind:value={app.taskListTitle} />
+  {/if}
+</section>
+```
+
+`TASK_LIST_CHOICES` is `off` → `Av`, `left` → `Vänster`, `right` → `Höger`, in that order.
+`.task-list-options` is `display:grid;grid-template-columns:repeat(3,1fr);gap:8px`; the buttons
+reuse the **Pappersstorlek** `.paper` token, `aria-pressed` and `border()` helper exactly. The
+heading input is the shared text-input token, labelled `Rubrik` via `aria-label` like the title
+input, with `maxlength` 20 (`MAX_TASK_LIST_TITLE_LENGTH` from `options.ts`, the same constant
+the API checks, §3.3). It is shown only while the list is on; `taskListTitle` is kept in state
+while it is hidden, so turning the list off and on again restores the heading.
+
+**Pappersstorlek** — the last section, placed after **Typsnitt** and **Att göra-lista** because
+it is the only control that does not change the preview (§6.4):
 
 ```
 <section>
@@ -1776,7 +1980,8 @@ when replaced or cleared, and on page unload. (The prototype used a `FileReader`
 object URLs avoid holding a 27 MB base64 string in memory for the preview.)
 
 Derived in `+page.svelte`: `const options = $derived({ year, month, schemeId, fontId, opacity,
-showHolidays, title, imageZoom, imageX, imageY })` (i.e. `toOptions(state)`) and
+showHolidays, title, imageZoom, imageX, imageY, paperSize, taskList, taskListTitle })` (i.e.
+`toOptions(state)`) and
 `const imageCss = $derived(imageCssOf(state.imageUrl))`. `+page.svelte` passes
 `imageSize={state.imageSize}` and an `onTransform` that writes the three fields back onto the
 state object — three assignments, no intermediate store.
@@ -3039,6 +3244,9 @@ Assertions:
     subsequent drawing command: `|sx|` for A3 divided by `|sx|` for A4 must equal `A3_SCALE`
     (`1.414`, within `toBeCloseTo`'s 3-digit tolerance) — proving the drawing commands
     themselves grew by the paper factor, not just the MediaBox.
+11. Task list on the right: a single month is `pageCount(bytes) === 1` and a whole year
+    (`yearPages`) is `pageCount(bytes) === 12` — the list column must not push the 14 rows or
+    the day grid past 210 mm.
 
 Page counting and geometry helpers (`tests/pdf-utils.ts`):
 
@@ -3115,7 +3323,10 @@ clear `imageSize`; `measureImage` with an injected measurer fills `imageSize`; a
 measurer leaves `imageSize` null and does not throw out of the caller. `toOptions` also
 projects `paperSize`: `createAppState()` defaults it to `'A4'` (the `toEqual(DEFAULT_OPTIONS)`
 guard in `createAppState`'s own test forces this), and setting `app.paperSize = 'A3'` carries
-through to `toOptions(app).paperSize`.
+through to `toOptions(app).paperSize`. Likewise `taskList` (default `'off'`) and
+`taskListTitle` (default `''`): setting `'right'` / `'Inköp'` carries through to `toOptions`.
+`export.test.ts` needs no new case: the `options` part is `JSON.stringify({ ...opts, scope })`
+of whatever `toOptions` returns.
 
 ### 12.7 What is deliberately not automated
 
@@ -3306,6 +3517,17 @@ the hint remain:
 | `A4`                                                          | paper-size button label (§6.3)              |
 | `A3`                                                          | paper-size button label (§6.3)              |
 | `Samma layout i båda storlekarna — A3 skalas proportionellt.` | sidebar hint under the paper buttons (§6.3) |
+
+Task-list copy (§5.2, §6.3), decided by the product owner:
+
+| String           | Where                                                      |
+| ---------------- | ---------------------------------------------------------- |
+| `Att göra`       | default task-list heading on the page; heading placeholder |
+| `Att göra-lista` | sidebar section heading (§6.3)                             |
+| `Av`             | task-list position button (§6.3)                           |
+| `Vänster`        | task-list position button (§6.3)                           |
+| `Höger`          | task-list position button (§6.3)                           |
+| `Rubrik`         | `aria-label` of the task-list heading input (§6.3)         |
 
 ### 14.5 The prototype's `gap:-4px`
 

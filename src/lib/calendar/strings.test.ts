@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DAY_NAMES, MONTHS, defaultTitle, resolveTitle } from './strings';
+import {
+	DAY_NAMES,
+	DEFAULT_TASK_LIST_TITLE,
+	MONTHS,
+	defaultTitle,
+	resolveTaskListTitle,
+	resolveTitle
+} from './strings';
 
 describe('MONTHS and DAY_NAMES', () => {
 	it('lists the twelve Swedish months', () => {
@@ -57,5 +64,19 @@ describe('resolveTitle', () => {
 
 	it('trims surrounding whitespace from a custom title', () => {
 		expect(resolveTitle({ year: 2026, month: 8, title: '  Vår trädgård  ' })).toBe('Vår trädgård');
+	});
+});
+
+describe('resolveTaskListTitle', () => {
+	it('defaults to Att göra', () => {
+		expect(DEFAULT_TASK_LIST_TITLE).toBe('Att göra');
+	});
+
+	it.each(['', '   '])('resolves %j to the default heading', (taskListTitle) => {
+		expect(resolveTaskListTitle({ taskListTitle })).toBe('Att göra');
+	});
+
+	it('trims a custom heading', () => {
+		expect(resolveTaskListTitle({ taskListTitle: ' Inköp ' })).toBe('Inköp');
 	});
 });

@@ -56,6 +56,22 @@ describe('parseCalendarOptions — accepted input', () => {
 		expect(result.ok && result.value.paperSize).toBe('A4');
 	});
 
+	it.each(['off', 'left', 'right'])('accepts taskList %s', (taskList) => {
+		const result = parse({ taskList });
+		expect(result.ok && result.value.taskList).toBe(taskList);
+	});
+
+	it.each(['', 'Inköp', 'x'.repeat(20)])('accepts taskListTitle %j', (taskListTitle) => {
+		const result = parse({ taskList: 'right', taskListTitle });
+		expect(result.ok && result.value.taskListTitle).toBe(taskListTitle);
+	});
+
+	it('defaults the task list to off with no heading when both keys are absent', () => {
+		const { taskList: _t, taskListTitle: _h, ...withoutTaskList } = VALID;
+		const result = parseCalendarOptions(withoutTaskList);
+		expect(result.ok && result.value).toMatchObject({ taskList: 'off', taskListTitle: '' });
+	});
+
 	it('ignores unknown extra keys', () => {
 		const result = parse({ nonsense: 1 });
 		expect(result.ok && 'nonsense' in result.value).toBe(false);
@@ -127,6 +143,17 @@ describe('parseCalendarOptions — rejected input', () => {
 		[{ paperSize: null }, 'invalid_paper_size'],
 		[{ paperSize: 3 }, 'invalid_paper_size'],
 		[{ paperSize: '' }, 'invalid_paper_size'],
+		[{ taskList: 'Left' }, 'invalid_task_list'],
+		[{ taskList: 'top' }, 'invalid_task_list'],
+		[{ taskList: '' }, 'invalid_task_list'],
+		[{ taskList: null }, 'invalid_task_list'],
+		[{ taskList: true }, 'invalid_task_list'],
+		[{ taskListTitle: 42 }, 'invalid_task_list_title'],
+		[{ taskListTitle: null }, 'invalid_task_list_title'],
+		[{ taskListTitle: 'x'.repeat(21) }, 'invalid_task_list_title'],
+		// Escapes written deliberately — never paste a literal control byte.
+		[{ taskListTitle: 'a\u0009b' }, 'invalid_task_list_title'],
+		[{ taskListTitle: 'a\u007Fb' }, 'invalid_task_list_title'],
 		[{ scope: 'week' }, 'invalid_scope'],
 		[{ scope: undefined }, 'invalid_scope']
 	])('rejects %j with %s', (patch, code) => {
@@ -187,6 +214,11 @@ describe('yearPages', () => {
 		);
 	});
 
+	it('carries the task list and its heading across every page', () => {
+		const listed = yearPages({ ...VALID, taskList: 'right', taskListTitle: 'Inköp' });
+		expect(listed.every((p) => p.taskList === 'right' && p.taskListTitle === 'Inköp')).toBe(true);
+	});
+
 	it('carries paperSize across every page', () => {
 		const a3pages = yearPages({ ...VALID, paperSize: 'A3' });
 		expect(a3pages.every((p) => p.paperSize === 'A3')).toBe(true);
@@ -220,5 +252,11 @@ describe('pdfFilename', () => {
 
 	it('appends -a3 to a year export', () => {
 		expect(pdfFilename({ ...VALID, scope: 'year', paperSize: 'A3' })).toBe('calgen-2026-a3.pdf');
+	});
+
+	it('ignores the task list', () => {
+		expect(pdfFilename({ ...VALID, taskList: 'left', taskListTitle: 'Inköp' })).toBe(
+			'calgen-2026-09.pdf'
+		);
 	});
 });

@@ -75,6 +75,14 @@ describe('toOptions', () => {
 		state.paperSize = 'A3';
 		expect(toOptions(state).paperSize).toBe('A3');
 	});
+
+	it('carries the task list and its heading', () => {
+		const state = createAppState();
+		expect(state).toMatchObject({ taskList: 'off', taskListTitle: '' });
+		state.taskList = 'right';
+		state.taskListTitle = 'Inköp';
+		expect(toOptions(state)).toMatchObject({ taskList: 'right', taskListTitle: 'Inköp' });
+	});
 });
 
 describe('resetImageTransform', () => {

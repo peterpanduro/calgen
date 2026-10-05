@@ -3,8 +3,10 @@
 CalGen is a stateless SvelteKit service that generates printable Swedish wall-calendar PDFs:
 A4 or A3 landscape (297 × 210 mm / 420 × 297 mm), one month per page, large day boxes for
 handwriting. The user picks year/month, an optional title, a background photo (zoomable and
-movable to pick the crop), box coverage, a colour scheme, a font pairing and a paper size, sees
-a live preview, and exports either the chosen month or all twelve months.
+movable to pick the crop), box coverage, a colour scheme, a font pairing, a paper size and an
+optional task list (blank ruled rows with checkboxes, left or right of the grid, with an
+editable heading), sees a live preview, and exports either the chosen month or all twelve
+months.
 
 `docs/SPEC.md` is normative. `docs/DEVIATIONS.md` lists every place the code differs from it.
 

@@ -25,7 +25,14 @@ export interface CalendarOptions {
 	imageY: number;
 	/** Paper size. `'A4'` (default) or `'A3'`; A3 is the same layout scaled (SPEC §4.11). */
 	paperSize: PaperSizeId;
+	/** Where the handwriting task list sits beside the day grid; `'off'` (default) omits it. */
+	taskList: TaskListPosition;
+	/** Task-list heading. Empty string means "use the default `Att göra`". */
+	taskListTitle: string;
 }
+
+export const TASK_LIST_POSITIONS = ['off', 'left', 'right'] as const;
+export type TaskListPosition = (typeof TASK_LIST_POSITIONS)[number];
 
 export const DEFAULT_OPTIONS: CalendarOptions = {
 	year: 2026,
@@ -38,7 +45,9 @@ export const DEFAULT_OPTIONS: CalendarOptions = {
 	imageZoom: 1,
 	imageX: 50,
 	imageY: 50,
-	paperSize: 'A4'
+	paperSize: 'A4',
+	taskList: 'off',
+	taskListTitle: ''
 };
 
 export type ExportScope = 'month' | 'year';

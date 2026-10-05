@@ -13,7 +13,9 @@ const BASE: CalendarOptions = {
 	imageZoom: 1,
 	imageX: 50,
 	imageY: 50,
-	paperSize: 'A4'
+	paperSize: 'A4',
+	taskList: 'off',
+	taskListTitle: ''
 };
 
 const view = (o: Partial<CalendarOptions> = {}) => buildCalendarView({ ...BASE, ...o });
@@ -124,4 +126,49 @@ describe('background geometry', () => {
 			});
 		}
 	);
+});
+
+describe('task list', () => {
+	it('is absent, with empty layout suffixes, when off', () => {
+		const v = view();
+		expect(v.taskList).toBeNull();
+		expect(v.layout).toEqual({ section: '', header: '', grid: '' });
+	});
+
+	it.each([
+		[
+			'left',
+			';grid-template-columns:50mm 1fr',
+			';grid-row:2;grid-column:2;min-width:0',
+			'grid-row:2;grid-column:1'
+		],
+		[
+			'right',
+			';grid-template-columns:1fr 50mm',
+			';grid-row:2;grid-column:1;min-width:0',
+			'grid-row:2;grid-column:2'
+		]
+	] as const)('places a %s list beside the grid', (taskList, section, grid, placement) => {
+		const v = view({ taskList });
+		expect(v.layout).toEqual({ section, header: ';grid-column:1/-1', grid });
+		expect(v.taskList?.placement).toBe(placement);
+	});
+
+	it('resolves the heading', () => {
+		expect(view({ taskList: 'right' }).taskList?.title).toBe('Att göra');
+		expect(view({ taskList: 'right', taskListTitle: ' Inköp ' }).taskList?.title).toBe('Inköp');
+	});
+
+	it('fills the panel like a current-month day box', () => {
+		expect(view({ taskList: 'left' }).taskList?.background).toBe('rgba(249,244,237,0.88)');
+		expect(view({ taskList: 'left', schemeId: 'natt', opacity: 30 }).taskList?.background).toBe(
+			'rgba(71,66,56,0.3)'
+		);
+	});
+
+	it('rules fourteen rows in the muted foreground colour', () => {
+		const list = view({ taskList: 'right' }).taskList;
+		expect(list?.line).toBe('#a19786');
+		expect(list?.rowBorders).toEqual(['none', ...Array(13).fill('1px solid #a19786')]);
+	});
 });

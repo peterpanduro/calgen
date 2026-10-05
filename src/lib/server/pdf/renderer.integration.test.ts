@@ -3,7 +3,12 @@ import path from 'node:path';
 import process from 'node:process';
 import { randomBytes } from 'node:crypto';
 import { crc32, deflateSync } from 'node:zlib';
+import { render } from 'svelte/server';
 import { afterAll, describe, expect, it } from 'vitest';
+import CalendarPage from '$lib/components/CalendarPage.svelte';
+import { getFont } from '$lib/calendar/fonts';
+import { getScheme } from '$lib/calendar/schemes';
+import { buildPrintHtml } from './print-html';
 import { createPdfRenderer } from './renderer';
 import { puppeteerBrowserFactory, resolveChromiumPathOrNull } from './puppeteer-browser';
 import { parseConfig } from '../config';
@@ -228,6 +233,85 @@ describe.skipIf(!exe)('pdf integration (real Chromium)', () => {
 			// Measured against real Chromium (Google Chrome 151): A4's transform is 3.125, A3's
 			// is 4.4187503 — ratio 1.41400010, matching `paper.ts`'s A3_SCALE (1.414).
 			expect(scaleOf(a3) / scaleOf(a4)).toBeCloseTo(1.414, 3);
+		});
+	});
+
+	describe('task list', () => {
+		it('keeps a month with the list on the right to one page', async () => {
+			const bytes = await renderer.render({ pages: [month({ taskList: 'right' })], image: null });
+			expect(pageCount(bytes)).toBe(1);
+		});
+
+		it('keeps a year with the list on the right to exactly twelve pages', async () => {
+			const bytes = await renderer.render({
+				pages: yearPages(month({ taskList: 'right' })),
+				image: null
+			});
+			expect(pageCount(bytes)).toBe(12);
+		});
+
+		describe('geometry in the print layout', () => {
+			interface Box {
+				top: number;
+				bottom: number;
+				height: number;
+			}
+			/** The real puppeteer page behind `PageLike`; `evaluate` is all this test adds. */
+			type EvalPage = { evaluate<T>(fn: () => T): Promise<T> };
+
+			/**
+			 * Boxes measured by structural position, so `CalendarPage.svelte` needs no test hooks:
+			 * the root section's children are photo layer, header, day grid, list column; the grid's
+			 * first child is the empty week-column spacer, then the weekday pills.
+			 */
+			const measure = async (options: CalendarOptions) => {
+				const body = render(CalendarPage, { props: { options, imageCss: 'none' } }).body;
+				const html = buildPrintHtml({
+					pages: [body],
+					fontCss: await loadPrintFontCss([getFont(options.fontId)]),
+					hasImage: false,
+					pageBg: getScheme(options.schemeId).bg,
+					paper: { widthMm: 297, heightMm: 210 }
+				});
+				const browser = await puppeteerBrowserFactory(config)();
+				try {
+					const page = (await browser.newPage()) as unknown as EvalPage & {
+						setContent(html: string, o: { waitUntil: 'load' }): Promise<void>;
+					};
+					await page.setContent(html, { waitUntil: 'load' });
+					return await page.evaluate(() => {
+						const box = (el: Element | undefined): Box => {
+							if (!el) throw new Error('structural selector missed');
+							const r = el.getBoundingClientRect();
+							return { top: r.top, bottom: r.bottom, height: r.height };
+						};
+						const root = document.querySelector('.calgen-page');
+						const section = root?.firstElementChild;
+						const grid = section?.children[2];
+						const list = section?.children[3];
+						return {
+							page: box(root ?? undefined),
+							grid: box(grid),
+							panel: box(list?.children[1]),
+							heading: box(list?.children[0]),
+							weekday: box(grid?.children[1])
+						};
+					});
+				} finally {
+					await browser.close();
+				}
+			};
+
+			it.each(['left', 'right'] as const)(
+				'keeps a six-row month with the list on the %s aligned and unclipped',
+				async (taskList) => {
+					const m = await measure(month({ year: 2026, month: 7, taskList }));
+					expect(Math.abs(m.panel.bottom - m.grid.bottom)).toBeLessThanOrEqual(0.5);
+					expect(m.grid.bottom).toBeLessThanOrEqual(m.page.bottom + 0.5);
+					expect(Math.abs(m.heading.top - m.weekday.top)).toBeLessThanOrEqual(0.5);
+					expect(Math.abs(m.heading.height - m.weekday.height)).toBeLessThanOrEqual(0.5);
+				}
+			);
 		});
 	});
 });

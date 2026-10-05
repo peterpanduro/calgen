@@ -5,8 +5,9 @@ A stateless web service that generates printable Swedish wall-calendar PDFs: A4 
 
 Pick a year and month, optionally a custom title, a background photo — which you can zoom and
 move to choose the crop — the day-box coverage, a colour scheme and a font pairing. Choose A4 or
-A3; A3 is the same layout scaled proportionally, and its file is named `…-a3.pdf`. The preview
-updates as you type. Export the chosen month, or all twelve months of the year as a single
+A3; A3 is the same layout scaled proportionally, and its file is named `…-a3.pdf`. Optionally
+add a task list — blank ruled rows with checkboxes, left or right of the grid, under a heading
+of your choice (`Att göra` by default). The preview updates as you type. Export the chosen month, or all twelve months of the year as a single
 12-page PDF.
 
 Swedish throughout: Monday-first weeks, ISO-8601 week numbers, Swedish public holidays and
@@ -33,7 +34,9 @@ curl -F 'options={"year":2026,"month":8,"schemeId":"organic","fontId":"organic",
 
 `multipart/form-data` with a required `options` JSON part and an optional `image` part
 (`image/jpeg`, `image/png` or `image/webp`, 20 MiB max, magic-byte checked). `scope` is
-`"month"` or `"year"`. Errors come back as JSON `{ "error": "code", "message": "…" }` with the
+`"month"` or `"year"`. The optional `taskList` (`"off"`, `"left"`, `"right"`; default `"off"`)
+and `taskListTitle` (≤ 20 characters; default `""`, printed as `Att göra`) add the task list.
+Errors come back as JSON `{ "error": "code", "message": "…" }` with the
 matching HTTP status. `GET /healthz` is a liveness probe and never starts a browser.
 
 ## Running in production
